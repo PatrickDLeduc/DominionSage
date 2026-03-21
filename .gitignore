@@ -1,0 +1,29 @@
+# Environment variables (contains API keys)
+.env
+
+# Python virtual environment
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Eval results (regenerate with run_evals.py)
+evals/results.csv
+
+# Rulebook PDFs (copyrighted, don't distribute)
+data/rulebooks/*.pdf
+
+# Scraped data (regenerate with scrape_cards.py)
+data/cards.json
+data/rulebook_chunks.json

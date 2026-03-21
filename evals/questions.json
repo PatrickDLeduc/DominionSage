@@ -1,0 +1,142 @@
+[
+  {
+    "question": "What does Chapel do?",
+    "expected_type": "card_lookup",
+    "expected_source_keywords": ["Chapel"],
+    "key_facts": ["trash", "up to 4 cards"],
+    "notes": "Direct card lookup. Should find Chapel in card DB and mention trashing."
+  },
+  {
+    "question": "Tell me about Throne Room",
+    "expected_type": "card_lookup",
+    "expected_source_keywords": ["Throne Room"],
+    "key_facts": ["play", "action card", "twice"],
+    "notes": "Direct card lookup. Should describe Throne Room's doubling ability."
+  },
+  {
+    "question": "What is Wharf?",
+    "expected_type": "card_lookup",
+    "expected_source_keywords": ["Wharf"],
+    "key_facts": ["cards", "buy", "next turn"],
+    "notes": "Direct card lookup for a Seaside Duration card."
+  },
+  {
+    "question": "Describe the Witch card",
+    "expected_type": "card_lookup",
+    "expected_source_keywords": ["Witch"],
+    "key_facts": ["cards", "curse"],
+    "notes": "Should mention Witch draws 2 cards and gives other players Curses."
+  },
+  {
+    "question": "Village",
+    "expected_type": "card_lookup",
+    "expected_source_keywords": ["Village"],
+    "key_facts": ["card", "actions"],
+    "notes": "Bare card name query. Router should still classify as card_lookup."
+  },
+  {
+    "question": "Show me all Action cards costing 4 or less",
+    "expected_type": "filtered_search",
+    "expected_source_keywords": ["Cellar", "Chapel", "Village"],
+    "key_facts": ["Cellar", "Chapel", "Village", "Smithy"],
+    "notes": "Filtered search by type + cost. Should return multiple cards organized by cost."
+  },
+  {
+    "question": "Which cards give +2 Actions?",
+    "expected_type": "filtered_search",
+    "expected_source_keywords": ["Village", "Festival"],
+    "key_facts": ["Village", "Festival", "Native Village"],
+    "notes": "Attribute filter. Should find cards with plus_actions >= 2."
+  },
+  {
+    "question": "List all Duration cards from Seaside",
+    "expected_type": "filtered_search",
+    "expected_source_keywords": ["Haven", "Caravan", "Wharf"],
+    "key_facts": ["Haven", "Caravan", "Wharf", "Lighthouse"],
+    "notes": "Type + expansion filter. Should return Seaside Duration cards."
+  },
+  {
+    "question": "What Seaside cards cost 5?",
+    "expected_type": "filtered_search",
+    "expected_source_keywords": ["Bazaar", "Wharf", "Tactician"],
+    "key_facts": ["Bazaar", "Wharf", "Tactician", "Merchant Ship"],
+    "notes": "Expansion + cost filter. Should return 5-cost Seaside cards. Must NOT include 4-cost cards like Blockade."
+  },
+  {
+    "question": "Show me cards that draw cards",
+    "expected_type": "filtered_search",
+    "expected_source_keywords": ["Smithy", "Laboratory", "Moat"],
+    "key_facts": ["Smithy", "Laboratory", "Moat"],
+    "notes": "Attribute filter for plus_cards >= 1. Should return draw cards."
+  },
+  {
+    "question": "When can I play Reaction cards?",
+    "expected_type": "rules_question",
+    "expected_source_keywords": ["reaction", "attack", "reveal"],
+    "key_facts": ["another player", "attack"],
+    "notes": "Classic rules question. Should cite the Base rulebook on Reaction timing."
+  },
+  {
+    "question": "What happens when 3 supply piles are empty?",
+    "expected_type": "rules_question",
+    "expected_source_keywords": ["empty", "supply", "game", "end"],
+    "key_facts": ["game ends"],
+    "notes": "End-of-game condition. Should explain the three-pile ending rule."
+  },
+  {
+    "question": "Can I buy multiple cards in one turn?",
+    "expected_type": "rules_question",
+    "expected_source_keywords": ["buy", "phase"],
+    "key_facts": ["buy", "one"],
+    "notes": "Buy phase rules. Should explain you get 1 buy by default, more with +Buy."
+  },
+  {
+    "question": "How do Duration cards work?",
+    "expected_type": "rules_question",
+    "expected_source_keywords": ["duration", "next turn", "play"],
+    "key_facts": ["next turn", "in play"],
+    "notes": "Should explain Duration cards stay in play and give effects on the next turn."
+  },
+  {
+    "question": "What is the turn structure in Dominion?",
+    "expected_type": "rules_question",
+    "expected_source_keywords": ["action", "buy", "cleanup"],
+    "key_facts": ["action", "buy", "cleanup"],
+    "notes": "Should describe the three phases: Action, Buy, Cleanup."
+  },
+  {
+    "question": "What combos well with Throne Room?",
+    "expected_type": "strategy_combo",
+    "expected_source_keywords": ["Throne Room"],
+    "key_facts": ["action"],
+    "notes": "Strategy question. Should mention Throne Room doubles an Action card's effects and suggest good targets."
+  },
+  {
+    "question": "Is Chapel worth buying early?",
+    "expected_type": "strategy_combo",
+    "expected_source_keywords": ["Chapel"],
+    "key_facts": ["trash"],
+    "notes": "Strategy question about Chapel's value. Should discuss trashing strategy."
+  },
+  {
+    "question": "How should I use Wharf effectively?",
+    "expected_type": "strategy_combo",
+    "expected_source_keywords": ["Wharf"],
+    "key_facts": ["cards", "buy"],
+    "notes": "Strategy question. Should reference Wharf's card draw and extra buy."
+  },
+  {
+    "question": "What are good cards to pair with Festival?",
+    "expected_type": "strategy_combo",
+    "expected_source_keywords": ["Festival"],
+    "key_facts": ["actions", "buy", "coins"],
+    "notes": "Strategy question. Should mention Festival provides Actions, Buy, and Coins."
+  },
+  {
+    "question": "Is Smithy or Laboratory better for drawing cards?",
+    "expected_type": "strategy_combo",
+    "expected_source_keywords": ["Smithy", "Laboratory"],
+    "key_facts": ["cards", "action"],
+    "notes": "Comparison question. Should compare Smithy (+3 Cards, terminal) vs Laboratory (+2 Cards, +1 Action, cantrip)."
+  }
+]

@@ -1,0 +1,180 @@
+"""
+card_lookup.py — DominionSage Card Database Queries (Phase 3)
+
+Handles Type 1 (card lookup) and Type 2 (filtered search) queries
+by querying the structured `cards` table in Supabase.
+
+This is the "SQL path" of the hybrid retrieval system. It's fast,
+precise, and costs $0 per query (no LLM or embedding calls needed).
+
+Analogy: This is like using a WHERE clause in SQL vs. doing a full
+text search. When you know the column and value you want, SQL is
+always faster and more precise than semantic search.
+"""
+
+import os
+import sys
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+try:
+    from supabase import create_client, Client
+except ImportError:
+    print("Missing dependency: pip install supabase")
+    sys.exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Client initialization
+# ─────────────────────────────────────────────────────────────────
+
+_supabase: Client | None = None
+
+
+def _get_client() -> Client:
+    """Lazy-initialize the Supabase client."""
+    global _supabase
+    if _supabase is None:
+        if load_dotenv:
+            load_dotenv()
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        if not url or not key:
+            raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set.")
+        _supabase = create_client(url, key)
+    return _supabase
+
+
+# ─────────────────────────────────────────────────────────────────
+# Type 1: Card lookup (by name)
+# ─────────────────────────────────────────────────────────────────
+
+def lookup_card(card_name: str) -> list[dict]:
+    """
+    Look up a specific card by name.
+
+    Uses ILIKE for case-insensitive partial matching, so:
+      - "chapel" finds "Chapel"
+      - "throne" finds "Throne Room"
+      - "village" finds "Village", "Fishing Village", "Native Village"
+
+    For the orchestrator, exact matches are preferred. If multiple
+    results come back, the synthesizer will handle disambiguation.
+    """
+    client = _get_client()
+
+    result = client.table("cards") \
+        .select("*") \
+        .ilike("name", f"%{card_name}%") \
+        .execute()
+
+    return result.data
+
+
+def lookup_card_exact(card_name: str) -> dict | None:
+    """
+    Look up a card by exact name match (case-insensitive).
+    Returns a single card dict or None.
+    """
+    client = _get_client()
+
+    result = client.table("cards") \
+        .select("*") \
+        .ilike("name", card_name) \
+        .execute()
+
+    return result.data[0] if result.data else None
+
+
+# ─────────────────────────────────────────────────────────────────
+# Type 2: Filtered search
+# ─────────────────────────────────────────────────────────────────
+
+def filtered_search(filters: dict) -> list[dict]:
+    """
+    Search cards with filters extracted by the router's parse_filters().
+
+    Supported filters:
+      - max_cost: cards costing at most N
+      - min_cost: cards costing at least N
+      - exact_cost: cards costing exactly N
+      - type: card type contains this string (Action, Treasure, etc.)
+      - expansion: exact expansion match
+      - min_plus_actions: +Actions >= N
+      - min_plus_cards: +Cards >= N
+      - min_plus_buys: +Buys >= N
+      - min_plus_coins: +Coins >= N
+
+    These map directly to SQL WHERE clauses — no LLM needed.
+    """
+    client = _get_client()
+    query = client.table("cards").select("*")
+
+    if "max_cost" in filters:
+        query = query.lte("cost", filters["max_cost"])
+
+    if "min_cost" in filters:
+        query = query.gte("cost", filters["min_cost"])
+
+    if "exact_cost" in filters:
+        query = query.eq("cost", filters["exact_cost"])
+
+    if "type" in filters:
+        query = query.ilike("type", f"%{filters['type']}%")
+
+    if "expansion" in filters:
+        query = query.eq("expansion", filters["expansion"])
+
+    if "min_plus_actions" in filters:
+        query = query.gte("plus_actions", filters["min_plus_actions"])
+
+    if "min_plus_cards" in filters:
+        query = query.gte("plus_cards", filters["min_plus_cards"])
+
+    if "min_plus_buys" in filters:
+        query = query.gte("plus_buys", filters["min_plus_buys"])
+
+    if "min_plus_coins" in filters:
+        query = query.gte("plus_coins", filters["min_plus_coins"])
+
+    # Order by cost for readability
+    query = query.order("cost").order("name")
+
+    result = query.execute()
+    return result.data
+
+
+# ─────────────────────────────────────────────────────────────────
+# Debug / testing
+# ─────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    print("── Card Lookup Tests ─────────────────────")
+
+    # Type 1: exact lookups
+    for name in ["Chapel", "Throne Room", "Wharf"]:
+        cards = lookup_card(name)
+        if cards:
+            c = cards[0]
+            print(f"  ✅ {c['name']} | ${c['cost']} | {c['type']} | {c['text'][:60]}...")
+        else:
+            print(f"  ❌ '{name}' not found")
+
+    print("\n── Filtered Search Tests ──────────────────")
+
+    # Type 2: filtered searches
+    tests = [
+        ("Action cards costing ≤3", {"type": "Action", "max_cost": 3}),
+        ("Cards with +2 Actions", {"min_plus_actions": 2}),
+        ("Seaside Duration cards", {"expansion": "Seaside", "type": "Duration"}),
+    ]
+    for label, filters in tests:
+        cards = filtered_search(filters)
+        print(f"  {label}: {len(cards)} results")
+        for c in cards[:3]:
+            print(f"    {c['name']} | ${c['cost']} | {c['type']}")
+        if len(cards) > 3:
+            print(f"    ... and {len(cards) - 3} more")

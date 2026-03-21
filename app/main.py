@@ -1,0 +1,239 @@
+"""
+app/main.py — DominionSage Streamlit UI (Phase 4)
+
+A chat interface for asking questions about Dominion cards, rules,
+and strategy. Includes a source attribution panel that shows exactly
+where each answer came from — the single most important UI element
+for a portfolio RAG project.
+
+Usage:
+  streamlit run app/main.py
+"""
+
+import streamlit as st
+import sys
+import os
+
+# Add project root to path so we can import the retrieval package
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from retrieval.orchestrator import answer_question
+
+
+# ─────────────────────────────────────────────────────────────────
+# Page config
+# ─────────────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="DominionSage",
+    page_icon="🃏",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Sidebar
+# ─────────────────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.title("🃏 DominionSage")
+    st.caption("AI-powered Dominion card game assistant")
+
+    st.divider()
+
+    # Expansion filter
+    expansion = st.selectbox(
+        "Filter by expansion",
+        [
+            "All",
+            "Base",
+            "Seaside",
+            "Intrigue",
+            "Prosperity",
+            "Hinterlands",
+            "Dark Ages",
+            "Adventures",
+            "Empires",
+            "Nocturne",
+            "Renaissance",
+            "Menagerie",
+            "Alchemy",
+            "Cornucopia",
+            "Guilds",
+            "Allies",
+            "Plunder",
+        ],
+        index=0,
+        help="Scope answers to a specific expansion, or search across all.",
+    )
+    exp_filter = None if expansion == "All" else expansion
+
+    st.divider()
+
+    # Example questions
+    st.markdown("**Try asking:**")
+    example_questions = [
+        "What does Chapel do?",
+        "Show me all Duration cards",
+        "When can I play Reaction cards?",
+        "What combos well with Throne Room?",
+    ]
+    for eq in example_questions:
+        if st.button(eq, use_container_width=True):
+            st.session_state["prefill_question"] = eq
+
+    st.divider()
+
+    # Architecture info (shows hiring managers you know what you built)
+    with st.expander("🏗️ How it works"):
+        st.markdown("""
+        **DominionSage** uses hybrid retrieval:
+
+        1. **Router** classifies your question into one of 4 types
+        2. **Card DB** (PostgreSQL) handles card lookups and filtered searches
+        3. **Vector Store** (pgvector) handles rules questions via semantic search
+        4. **GPT-4o-mini** synthesizes the final answer from retrieved context
+
+        Every answer shows its sources so you can verify the information.
+        """)
+
+    # Clear chat button
+    if st.button("🗑️ Clear chat", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────────
+# Chat state
+# ─────────────────────────────────────────────────────────────────
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+# ─────────────────────────────────────────────────────────────────
+# Source attribution display
+# ─────────────────────────────────────────────────────────────────
+
+def render_sources(sources: list[dict]) -> None:
+    """
+    Render the source attribution panel for an answer.
+
+    This is the most important UI element for a portfolio RAG project.
+    It shows hiring managers that you understand AI systems need to be
+    auditable — users need to know WHERE answers come from.
+    """
+    # Filter out meta sources (those are already appended to the answer)
+    real_sources = [s for s in sources if s["type"] != "meta"]
+
+    if not real_sources:
+        return
+
+    # Count by type
+    card_sources = [s for s in real_sources if s["type"] == "card_db"]
+    rule_sources = [s for s in real_sources if s["type"] == "rulebook"]
+
+    # Build label
+    parts = []
+    if card_sources:
+        parts.append(f"{len(card_sources)} card(s)")
+    if rule_sources:
+        parts.append(f"{len(rule_sources)} rulebook chunk(s)")
+    label = f"📋 Sources: {', '.join(parts)}"
+
+    with st.expander(label):
+        # Card sources
+        if card_sources:
+            st.markdown("**🃏 Card Database**")
+            for source in card_sources:
+                card = source["data"]
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.markdown(
+                        f"**{card['name']}**  \n"
+                        f"Cost: {card.get('cost', '?')} | "
+                        f"{card.get('type', '?')}  \n"
+                        f"*{card.get('expansion', '?')}*"
+                    )
+                with col2:
+                    st.text(card.get("text", "N/A"))
+                st.divider()
+
+        # Rulebook sources
+        if rule_sources:
+            st.markdown("**📄 Rulebook Chunks**")
+            for source in rule_sources:
+                chunk = source["data"]
+                similarity = chunk.get("similarity", 0)
+                sim_pct = f"{similarity:.0%}" if similarity else "N/A"
+
+                st.markdown(
+                    f"**{chunk.get('expansion', '?')}** — "
+                    f"Page {chunk.get('source_page', '?')} "
+                    f"(relevance: {sim_pct})"
+                )
+                st.text(chunk.get("chunk_text", "N/A")[:300])
+                if len(chunk.get("chunk_text", "")) > 300:
+                    st.caption("(truncated)")
+                st.divider()
+
+
+# ─────────────────────────────────────────────────────────────────
+# Chat display
+# ─────────────────────────────────────────────────────────────────
+
+# Display chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+    # Show sources after assistant messages
+    if msg["role"] == "assistant" and "sources" in msg:
+        render_sources(msg["sources"])
+
+
+# ─────────────────────────────────────────────────────────────────
+# Chat input
+# ─────────────────────────────────────────────────────────────────
+
+# Check for prefilled question from sidebar buttons
+prefill = st.session_state.pop("prefill_question", None)
+prompt = st.chat_input("Ask about Dominion cards, rules, or strategy...")
+
+# Use prefilled question if a sidebar button was clicked
+if prefill:
+    prompt = prefill
+
+if prompt:
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Generate response
+    with st.chat_message("assistant"):
+        with st.spinner("Searching cards and rulebooks..."):
+            try:
+                result = answer_question(prompt, expansion=exp_filter)
+                answer = result["answer"]
+                sources = result["sources"]
+                query_type = result["query_type"]
+            except Exception as e:
+                answer = f"Sorry, something went wrong: {str(e)}"
+                sources = []
+                query_type = "error"
+
+        st.markdown(answer)
+
+    # Show sources
+    if sources:
+        render_sources(sources)
+
+    # Save to session state
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer,
+        "sources": sources,
+        "query_type": query_type,
+    })
