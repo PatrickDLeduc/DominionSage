@@ -2,11 +2,12 @@
 orchestrator.py — DominionSage Retrieval Orchestrator (Phase 3)
 
 This is the central coordinator of the entire RAG pipeline. It:
-  1. Receives a user question
-  2. Routes it to the correct retrieval path (via the router)
-  3. Fetches context from the card DB, vector store, or both
-  4. Passes the context to the synthesizer for final answer generation
-  5. Returns the answer + sources for the UI to display
+  1. Receives a user question + optional conversation history
+  2. Rewrites the query to resolve pronouns/references (NEW)
+  3. Routes it to the correct retrieval path (via the router)
+  4. Fetches context from the card DB, vector store, or both
+  5. Passes the context to the synthesizer for final answer generation
+  6. Returns the answer + sources for the UI to display
 
 Analogy: Think of the orchestrator like a restaurant's expediter — the
 person who reads incoming orders, tells each station (grill, sauté,
@@ -20,27 +21,42 @@ from retrieval.router import classify_query, find_card_name_in_query, parse_filt
 from retrieval.card_lookup import lookup_card, filtered_search
 from retrieval.rules_search import search_rules
 from retrieval.synthesizer import synthesize_answer
+from retrieval.rewriter import rewrite_query
 
 
 # ─────────────────────────────────────────────────────────────────
 # Main pipeline
 # ─────────────────────────────────────────────────────────────────
 
-def answer_question(query: str, expansion: str | None = None) -> dict:
+def answer_question(
+    query: str,
+    expansion: str | None = None,
+    conversation_history: list[dict] | None = None,
+) -> dict:
     """
-    Full pipeline: route → retrieve → synthesize.
+    Full pipeline: rewrite → route → retrieve → synthesize.
 
     Args:
-        query:     The user's natural language question.
-        expansion: Optional expansion filter (e.g., "Seaside").
+        query:                The user's natural language question.
+        expansion:            Optional expansion filter (e.g., "Seaside").
+        conversation_history: Optional list of recent messages, each with
+                              "role" ("user"/"assistant") and "content".
+                              Used to resolve follow-up references like
+                              "it", "that card", "which ones", etc.
 
     Returns:
         Dict with:
-          - answer:     The generated answer string
-          - sources:    List of source dicts (for the UI's source panel)
-          - query_type: Which route was taken (for debugging/evals)
+          - answer:         The generated answer string
+          - sources:        List of source dicts (for the UI's source panel)
+          - query_type:     Which route was taken (for debugging/evals)
+          - original_query: The user's original query (before rewriting)
+          - rewritten_query: The resolved query (after rewriting, if changed)
     """
-    # Step 1: Classify the query
+    # Step 0: Rewrite the query to resolve any follow-up references
+    original_query = query
+    query = rewrite_query(query, conversation_history)
+
+    # Step 1: Classify the (possibly rewritten) query
     query_type = classify_query(query)
 
     # Step 2: Retrieve context based on query type
@@ -65,20 +81,26 @@ def answer_question(query: str, expansion: str | None = None) -> dict:
     answer = synthesize_answer(query, context)
 
     # Step 4: Append any meta notes directly to the answer
-    # (Don't rely on the LLM to surface these — it sometimes ignores them)
     for source in context["sources"]:
         if source["type"] == "meta":
             answer += f"\n\n> **Note:** {source['data']['note']}"
 
-    return {
+    result = {
         "answer": answer,
         "sources": context["sources"],
         "query_type": query_type,
     }
 
+    # Include rewriting info for debugging and the UI
+    if query != original_query:
+        result["original_query"] = original_query
+        result["rewritten_query"] = query
+
+    return result
+
 
 # ─────────────────────────────────────────────────────────────────
-# Retrieval strategies
+# Retrieval strategies (unchanged)
 # ─────────────────────────────────────────────────────────────────
 
 def _retrieve_card_lookup(query: str) -> list[dict]:
@@ -91,9 +113,6 @@ def _retrieve_card_lookup(query: str) -> list[dict]:
     if card_name:
         cards = lookup_card(card_name)
     else:
-        # Fallback: try using the whole query as a search term
-        # (handles cases like "Chapel?" where the router detected
-        # a card name but find_card_name might have edge cases)
         cards = lookup_card(query.strip("?!. "))
 
     return [{"type": "card_db", "data": c} for c in cards]
@@ -109,27 +128,20 @@ def _retrieve_filtered_search(
     """
     filters = parse_filters(query)
 
-    # Apply the UI's expansion filter if set
     if expansion and "expansion" not in filters:
         filters["expansion"] = expansion
 
-    # If no filters were parsed, fall back to a broad search
-    # (the synthesizer will explain the results)
     if not filters:
         filters = {}
 
     cards = filtered_search(filters)
 
-    # Cap results to avoid overwhelming the LLM context
-    # (more than 20 cards is too much for a single answer)
     total_found = len(cards)
     if total_found > 20:
         cards = cards[:20]
 
     sources = [{"type": "card_db", "data": c} for c in cards]
 
-    # If we capped results, add a metadata source so the synthesizer
-    # can tell the user there are more
     if total_found > 20:
         sources.append({
             "type": "meta",
@@ -161,21 +173,15 @@ def _retrieve_strategy_combo(
 ) -> list[dict]:
     """
     Type 4: Strategy / combo question.
-    Queries BOTH the card database and the vector store, then
-    combines the results.
-
-    This gives the synthesizer both structured card data (exact stats)
-    and rulebook knowledge (timing rules, interactions) to draw from.
+    Queries BOTH the card database and the vector store.
     """
     sources = []
 
-    # Card DB: find any cards mentioned in the query
     card_name = find_card_name_in_query(query)
     if card_name:
         cards = lookup_card(card_name)
         sources.extend([{"type": "card_db", "data": c} for c in cards])
 
-    # Vector search: find relevant rulebook context
     chunks = search_rules(query, top_k=3, expansion=expansion)
     sources.extend([{"type": "rulebook", "data": c} for c in chunks])
 
@@ -187,24 +193,28 @@ def _retrieve_strategy_combo(
 # ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    test_questions = [
-        "What does Chapel do?",                          # Type 1
-        "Show me all Action cards costing 4 or less",    # Type 2
-        "When can I play Reaction cards?",               # Type 3
-        "What combos well with Throne Room?",            # Type 4
+    # Test without history (should work exactly as before)
+    print("=" * 60)
+    print("Test 1: No conversation history (baseline)")
+    print("=" * 60)
+
+    result = answer_question("What does Chapel do?")
+    print(f"Type: {result['query_type']}")
+    print(f"Answer: {result['answer'][:200]}...")
+
+    # Test with history (follow-up question)
+    print(f"\n{'=' * 60}")
+    print("Test 2: Follow-up with pronoun resolution")
+    print("=" * 60)
+
+    history = [
+        {"role": "user", "content": "What does Throne Room do?"},
+        {"role": "assistant", "content": "Throne Room costs 4 and lets you play an Action card from your hand twice."},
     ]
 
-    for q in test_questions:
-        print(f"\n{'=' * 60}")
-        print(f"Q: {q}")
-        print(f"{'=' * 60}")
-
-        result = answer_question(q)
-        print(f"Type: {result['query_type']}")
-        print(f"Sources: {len(result['sources'])}")
-        for s in result["sources"]:
-            if s["type"] == "card_db":
-                print(f"  📋 Card: {s['data']['name']}")
-            elif s["type"] == "rulebook":
-                print(f"  📄 Rulebook: {s['data'].get('expansion', '?')} p.{s['data'].get('source_page', '?')}")
-        print(f"\nAnswer:\n{result['answer']}")
+    result = answer_question("What combos well with it?", conversation_history=history)
+    print(f"Type: {result['query_type']}")
+    if "rewritten_query" in result:
+        print(f"Original:  {result['original_query']}")
+        print(f"Rewritten: {result['rewritten_query']}")
+    print(f"Answer: {result['answer'][:200]}...")

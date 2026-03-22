@@ -196,26 +196,38 @@ for msg in st.session_state.messages:
 # ─────────────────────────────────────────────────────────────────
 # Chat input
 # ─────────────────────────────────────────────────────────────────
-
+ 
 # Check for prefilled question from sidebar buttons
 prefill = st.session_state.pop("prefill_question", None)
 prompt = st.chat_input("Ask about Dominion cards, rules, or strategy...")
-
+ 
 # Use prefilled question if a sidebar button was clicked
 if prefill:
     prompt = prefill
-
+ 
 if prompt:
     # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
-
+ 
+    # Build conversation history for the rewriter
+    # Take only user/assistant content pairs (skip sources, query_type, etc.)
+    conversation_history = [
+        {"role": msg["role"], "content": msg["content"]}
+        for msg in st.session_state.messages[:-1]  # exclude the message we just added
+        if msg["role"] in ("user", "assistant")
+    ]
+ 
     # Generate response
     with st.chat_message("assistant"):
         with st.spinner("Searching cards and rulebooks..."):
             try:
-                result = answer_question(prompt, expansion=exp_filter)
+                result = answer_question(
+                    prompt,
+                    expansion=exp_filter,
+                    conversation_history=conversation_history,
+                )
                 answer = result["answer"]
                 sources = result["sources"]
                 query_type = result["query_type"]
@@ -223,13 +235,18 @@ if prompt:
                 answer = f"Sorry, something went wrong: {str(e)}"
                 sources = []
                 query_type = "error"
-
+                result = {}
+ 
+        # Show rewrite indicator if the query was rewritten
+        if "rewritten_query" in result:
+            st.caption(f"🔄 Interpreted as: *{result['rewritten_query']}*")
+ 
         st.markdown(answer)
-
+ 
     # Show sources
     if sources:
         render_sources(sources)
-
+ 
     # Save to session state
     st.session_state.messages.append({
         "role": "assistant",
