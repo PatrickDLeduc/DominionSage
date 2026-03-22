@@ -4,7 +4,7 @@
 
 Ask about cards, rules, combos, and strategy. Every answer shows its sources so you can verify the information.
 
-🔗 **[Try it live →](https://dominionsage-24catgbjrsjori4ketkd36.streamlit.app/)**
+🔗 **[Try it live →](https://dominionsage.streamlit.app/)**
 
 ---
 
