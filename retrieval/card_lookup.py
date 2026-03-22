@@ -108,10 +108,24 @@ def filtered_search(filters: dict) -> list[dict]:
       - min_plus_buys: +Buys >= N
       - min_plus_coins: +Coins >= N
 
-    These map directly to SQL WHERE clauses — no LLM needed.
+    Automatically excludes:
+      - Non-supply cards (Events, Landmarks, Ways, Projects, etc.)
+      - Cards with null costs when filtering by cost
     """
     client = _get_client()
     query = client.table("cards").select("*")
+
+    # Exclude non-supply card types from filtered results
+    # These are game elements but not cards you buy from supply piles
+    non_supply_types = ["Event", "Landmark", "Way", "Project", "Boon",
+                        "Hex", "State", "Artifact"]
+    for nst in non_supply_types:
+        query = query.not_.ilike("type", f"%{nst}%")
+
+    # If filtering by cost, exclude cards with null/missing costs
+    has_cost_filter = any(k in filters for k in ["max_cost", "min_cost", "exact_cost"])
+    if has_cost_filter:
+        query = query.not_.is_("cost", "null")
 
     if "max_cost" in filters:
         query = query.lte("cost", filters["max_cost"])

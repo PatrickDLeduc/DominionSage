@@ -98,14 +98,20 @@ def search_rules(
     query: str,
     top_k: int = 3,
     expansion: str | None = None,
+    min_similarity: float = 0.25,
 ) -> list[dict]:
     """
     Semantic search over rulebook chunks.
 
     Args:
-        query:     The user's natural language question.
-        top_k:     Number of results to return (default 3).
-        expansion: If set, only search chunks from this expansion.
+        query:          The user's natural language question.
+        top_k:          Number of results to return (default 3).
+        expansion:      If set, only search chunks from this expansion.
+        min_similarity:  Drop chunks below this similarity threshold.
+                        This prevents low-relevance chunks from being
+                        cited in the answer. 0.25 is a conservative
+                        threshold — increase if you see irrelevant
+                        sources, decrease if you're missing results.
 
     Returns:
         List of dicts with: expansion, source_page, chunk_text, similarity
@@ -116,20 +122,33 @@ def search_rules(
     query_embedding = embed_query(query)
 
     # Step 2: call the appropriate match function
+    # Request more than top_k so we have room after filtering
+    fetch_count = top_k * 2
+
     try:
         if expansion:
             result = supabase.rpc("match_chunks_by_expansion", {
                 "query_embedding": query_embedding,
-                "match_count": top_k,
+                "match_count": fetch_count,
                 "filter_expansion": expansion,
             }).execute()
         else:
             result = supabase.rpc("match_chunks", {
                 "query_embedding": query_embedding,
-                "match_count": top_k,
+                "match_count": fetch_count,
             }).execute()
 
-        return result.data if result.data else []
+        if not result.data:
+            return []
+
+        # Step 3: filter by confidence threshold
+        filtered = [
+            chunk for chunk in result.data
+            if chunk.get("similarity", 0) >= min_similarity
+        ]
+
+        # Return at most top_k results
+        return filtered[:top_k]
 
     except Exception as e:
         print(f"  ⚠️  Rules search error: {e}")

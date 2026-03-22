@@ -129,6 +129,13 @@ def parse_xlsx(xlsx_path: Path) -> list[dict]:
     headers = [cell.value for cell in ws[1]]
     cards = []
 
+    # Card types that are NOT regular kingdom/supply cards
+    # These shouldn't appear in filtered search results
+    non_card_types = {
+        "Event", "Landmark", "Way", "Project", "Boon", "Hex",
+        "State", "Artifact",
+    }
+
     for row in ws.iter_rows(min_row=2, values_only=True):
         name = row[0]
         if not name:
@@ -137,11 +144,14 @@ def parse_xlsx(xlsx_path: Path) -> list[dict]:
         raw_set = str(row[1] or "")
         expansion = normalize_set(raw_set)
 
+        # Parse cost — use None for unparseable values instead of 0
         cost_raw = row[6]
+        cost = None
         try:
-            cost = int(cost_raw) if cost_raw not in (None, "N/A", "") else 0
+            if cost_raw is not None and str(cost_raw).strip() not in ("N/A", ""):
+                cost = int(cost_raw)
         except (ValueError, TypeError):
-            cost = 0
+            cost = None
 
         card_type = merge_types(
             str(row[2] or ""),
@@ -150,16 +160,24 @@ def parse_xlsx(xlsx_path: Path) -> list[dict]:
             str(row[5] or ""),
         )
 
+        # Check if this is a non-supply card type (Event, Landmark, etc.)
+        primary_type = str(row[2] or "").strip()
+        is_supply = primary_type not in non_card_types
+
+        # Check the "In Supply" column if available
+        in_supply_col = row[10] if len(row) > 10 else None
+
         cards.append({
             "name": str(name).strip(),
             "cost": cost,
             "type": card_type,
             "expansion": expansion,
-            "text": "",  # xlsx doesn't have card text
+            "text": "",
             "plus_actions": 0,
             "plus_cards": 0,
             "plus_buys": 0,
             "plus_coins": 0,
+            "in_supply": bool(in_supply_col) if in_supply_col is not None else is_supply,
         })
 
     return cards

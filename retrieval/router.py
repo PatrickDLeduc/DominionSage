@@ -102,9 +102,40 @@ def classify_query(query: str) -> str:
     query_lower = query.lower()
     has_card = find_card_name_in_query(query) is not None
 
+    # ── Type 3: Rules question ──
+    # CHECK THIS FIRST — rules questions often mention card types
+    # ("Reaction cards", "Duration cards") but are asking about RULES,
+    # not requesting a list. The key signals are question words about
+    # mechanics and timing.
+    rules_signals = [
+        "rule", "when can", "when do", "am i allowed",
+        "can i", "can you", "is it legal", "what happens if",
+        "what happens when", "phase", "turn order", "turn structure",
+        "action phase", "buy phase", "cleanup", "clean up",
+        "setup", "set up", "how to play", "how do you play",
+        "how many players", "end of game", "game end",
+        "supply pile", "empty pile", "gain a card",
+        "in response", "timing", "resolve",
+        "how do .* work", "how does .* work",
+        "what is the turn", "what are the rules",
+        "when .* play", "when .* played",
+        "piles are empty", "piles empty",
+    ]
+    if any(signal in query_lower for signal in rules_signals):
+        return "rules_question"
+
+    # Also catch "How do [Type] cards work?" patterns specifically
+    import re as _re
+    if _re.search(r"how (do|does) .+ cards? work", query_lower):
+        return "rules_question"
+
+    # "When can I play [Type] cards?" is always a rules question
+    if _re.search(r"when can .+ play .+ cards?", query_lower):
+        return "rules_question"
+
     # ── Type 2: Filtered search ──
-    # Check this BEFORE card_lookup because "Show me all Action cards"
-    # mentions card types but wants a list, not a single card.
+    # Now that rules questions are handled, we can safely match
+    # card type mentions as filter requests.
     filter_signals = [
         "show me", "list all", "list the", "which cards", "cards that",
         "cards with", "cards costing", "cards under", "cards over",
@@ -112,12 +143,16 @@ def classify_query(query: str) -> str:
         "cost less", "cost more", "costing", "cheaper than",
         "more expensive", "all cards", "every card",
         "how many cards", "with +", "that give", "that have",
-        "action cards", "treasure cards", "victory cards",
-        "attack cards", "duration cards", "reaction cards",
-        "what cards", "what .* cards",
+        "what cards",
     ]
 
-    # Also catch "[Expansion] cards" patterns like "What Seaside cards cost 5?"
+    # Card type + list-like intent (but NOT "how do X cards work")
+    type_list_signals = [
+        "action cards", "treasure cards", "victory cards",
+        "attack cards", "duration cards", "reaction cards",
+    ]
+
+    # "[Expansion] cards" patterns like "What Seaside cards cost 5?"
     expansion_names = [
         "base", "seaside", "intrigue", "prosperity", "hinterlands",
         "dark ages", "adventures", "empires", "nocturne", "renaissance",
@@ -129,6 +164,13 @@ def classify_query(query: str) -> str:
 
     if any(signal in query_lower for signal in filter_signals):
         return "filtered_search"
+
+    # Type mentions only count as filtered search if combined with
+    # list-like words (show, list, which, all, etc.)
+    list_intent_words = ["show", "list", "which", "all", "every", "what"]
+    if any(t in query_lower for t in type_list_signals):
+        if any(w in query_lower for w in list_intent_words):
+            return "filtered_search"
 
     # ── Type 1: Card lookup ──
     # A specific card name + a "tell me about it" signal
@@ -143,20 +185,6 @@ def classify_query(query: str) -> str:
     # Also catch bare card name queries like "Chapel" or "Chapel?"
     if has_card and len(query.split()) <= 3:
         return "card_lookup"
-
-    # ── Type 3: Rules question ──
-    rules_signals = [
-        "rule", "when can", "when do", "am i allowed",
-        "can i", "can you", "is it legal", "what happens if",
-        "what happens when", "phase", "turn order", "turn structure",
-        "action phase", "buy phase", "cleanup", "clean up",
-        "setup", "set up", "how to play", "how do you play",
-        "how many players", "end of game", "game end",
-        "supply pile", "empty pile", "gain a card",
-        "in response", "timing", "resolve",
-    ]
-    if any(signal in query_lower for signal in rules_signals):
-        return "rules_question"
 
     # ── Type 4: Strategy / combo ──
     # This is the catch-all, but also check for explicit strategy signals

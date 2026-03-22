@@ -8,13 +8,18 @@ on three dimensions:
   2. Retrieval precision — Did the correct source appear in the results?
   3. Answer quality — Does the generated answer contain the key facts?
 
-This is the AI engineering equivalent of unit tests. The difference is
-that AI systems are non-deterministic — the same input can produce
-different outputs. Evals handle this by testing PROPERTIES ("does the
-answer mention trashing?") rather than exact equality.
+Two scoring modes:
+  - Default: keyword-based scoring (fast, free, catches obvious failures)
+  - --judge: LLM-as-judge scoring (GPT-4o grades each answer semantically)
+
+The keyword scorer is like a scantron machine — it checks if the right
+bubbles are filled in. The LLM judge is like a teaching assistant who
+reads the essay, understands the meaning, and catches wrong answers
+that happen to contain the right keywords.
 
 Usage:
-  python evals/run_evals.py                  # run all evals
+  python evals/run_evals.py                  # keyword scoring only
+  python evals/run_evals.py --judge          # add LLM-as-judge scoring
   python evals/run_evals.py --verbose        # show full answers
   python evals/run_evals.py --type card_lookup  # run only one type
   python evals/run_evals.py --question 3     # run a single question
@@ -105,8 +110,8 @@ def score_answer_quality(answer: str, key_facts: list[str]) -> float:
     key facts were mentioned. Uses normalized matching so that
     'cleanup', 'clean-up', and 'clean up' all count as matches.
 
-    For more sophisticated scoring, you'd use an LLM-as-judge
-    (a future enhancement listed in Phase 6).
+    This is the "fast and free" scorer. For deeper evaluation,
+    use --judge to enable the LLM-as-judge scorer.
     """
     if not key_facts:
         return 1.0  # No key facts specified = auto-pass
@@ -116,10 +121,150 @@ def score_answer_quality(answer: str, key_facts: list[str]) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────
+# LLM-as-Judge scoring
+# ─────────────────────────────────────────────────────────────────
+
+JUDGE_PROMPT = """You are an expert evaluator for a Dominion card game AI assistant.
+
+Your job is to grade the assistant's answer on three criteria. Be strict but fair.
+
+CRITERIA:
+
+1. FACTUAL ACCURACY (1-5):
+   Is the information correct? Check for:
+   - Wrong card costs (e.g., saying Chapel costs 3 when it costs 2)
+   - Wrong card effects (e.g., saying Smithy draws 2 cards when it draws 3)
+   - Wrong expansion attributions
+   - Incorrect rule interpretations
+   - Cards listed under wrong categories
+   Score 5 = all facts correct. Score 1 = major factual errors.
+
+2. COMPLETENESS (1-5):
+   Does the answer cover what was asked?
+   - For card lookups: does it mention the key mechanics?
+   - For filtered searches: are the right cards included (and wrong ones excluded)?
+   - For rules questions: is the ruling complete and precise?
+   - For strategy questions: does it explain WHY, not just WHAT?
+   Score 5 = fully complete. Score 1 = misses the main point.
+
+3. SOURCE QUALITY (1-5):
+   Are sources cited correctly?
+   - Are rulebook page numbers plausible for the content cited?
+   - Does the answer distinguish between card database facts and rulebook rules?
+   - Does it avoid making claims not supported by the provided context?
+   Score 5 = excellent sourcing. Score 1 = fabricated or misleading sources.
+
+RESPOND IN EXACTLY THIS JSON FORMAT (no other text):
+{
+  "accuracy": <1-5>,
+  "completeness": <1-5>,
+  "source_quality": <1-5>,
+  "overall": <1-5>,
+  "errors": ["list any specific factual errors found"],
+  "reasoning": "brief explanation of your scores"
+}"""
+
+
+_judge_client = None
+
+def _get_judge_client():
+    """Lazy-initialize the OpenAI client for the judge."""
+    global _judge_client
+    if _judge_client is None:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+        from openai import OpenAI
+        _judge_client = OpenAI()
+    return _judge_client
+
+
+def llm_judge_score(
+    question: str,
+    answer: str,
+    expected_type: str,
+    key_facts: list[str],
+) -> dict:
+    """
+    Use GPT-4o to grade an answer on accuracy, completeness, and sourcing.
+
+    This is the "teaching assistant" scorer — it reads the answer,
+    understands the meaning, and catches errors that keyword matching
+    can't detect.
+
+    Returns a dict with scores (1-5), errors list, and reasoning.
+    Cost: ~$0.01-0.03 per call.
+    """
+    client = _get_judge_client()
+
+    # Build the grading context
+    facts_str = ", ".join(key_facts) if key_facts else "(no specific facts required)"
+
+    user_message = f"""QUESTION TYPE: {expected_type}
+
+USER QUESTION: {question}
+
+ASSISTANT'S ANSWER:
+{answer}
+
+EXPECTED KEY FACTS: {facts_str}
+
+Grade this answer according to the criteria. Remember to respond ONLY in the JSON format specified."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": JUDGE_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.1,
+            max_tokens=500,
+        )
+
+        result_text = response.choices[0].message.content.strip()
+
+        # Parse JSON (handle markdown code fences if present)
+        result_text = result_text.replace("```json", "").replace("```", "").strip()
+        scores = json.loads(result_text)
+
+        # Validate expected fields
+        required = ["accuracy", "completeness", "source_quality", "overall", "errors", "reasoning"]
+        for field in required:
+            if field not in scores:
+                scores[field] = 3 if field != "errors" else []
+                if field == "reasoning":
+                    scores[field] = "Parse error — field missing"
+
+        return scores
+
+    except json.JSONDecodeError:
+        return {
+            "accuracy": 3,
+            "completeness": 3,
+            "source_quality": 3,
+            "overall": 3,
+            "errors": ["Judge response was not valid JSON"],
+            "reasoning": f"Raw response: {result_text[:200]}",
+        }
+    except Exception as e:
+        return {
+            "accuracy": 0,
+            "completeness": 0,
+            "source_quality": 0,
+            "overall": 0,
+            "errors": [f"Judge API error: {str(e)}"],
+            "reasoning": "Failed to call judge API.",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────
 # Eval runner
 # ─────────────────────────────────────────────────────────────────
 
-def run_single_eval(question: dict, verbose: bool = False) -> dict:
+def run_single_eval(question: dict, verbose: bool = False, use_judge: bool = False) -> dict:
     """Run a single eval question and return scored results."""
     q_text = question["question"]
 
@@ -136,7 +281,7 @@ def run_single_eval(question: dict, verbose: bool = False) -> dict:
         query_type = "error"
         error = str(e)
 
-    # Score
+    # ── Keyword scoring (always runs) ──
     routing_correct = score_routing(question["expected_type"], query_type)
     retrieval_hit = score_retrieval(sources, question.get("expected_source_keywords", []))
     answer_quality = score_answer_quality(answer, question.get("key_facts", []))
@@ -159,10 +304,29 @@ def run_single_eval(question: dict, verbose: bool = False) -> dict:
         "error": error or "",
     }
 
+    # ── LLM Judge scoring (only with --judge flag) ──
+    if use_judge and not error:
+        judge_scores = llm_judge_score(
+            question=q_text,
+            answer=answer,
+            expected_type=question["expected_type"],
+            key_facts=key_facts,
+        )
+        result_row["judge_accuracy"] = judge_scores["accuracy"]
+        result_row["judge_completeness"] = judge_scores["completeness"]
+        result_row["judge_source_quality"] = judge_scores["source_quality"]
+        result_row["judge_overall"] = judge_scores["overall"]
+        result_row["judge_errors"] = "; ".join(judge_scores.get("errors", []))
+        result_row["judge_reasoning"] = judge_scores.get("reasoning", "")
+
     if verbose:
         print(f"\n    Answer: {answer[:200]}...")
         if facts_missed:
             print(f"    Missed facts: {facts_missed}")
+        if use_judge and "judge_overall" in result_row:
+            print(f"    Judge: {result_row['judge_overall']}/5 — {result_row.get('judge_reasoning', '')[:100]}")
+            if result_row.get("judge_errors"):
+                print(f"    Judge errors: {result_row['judge_errors']}")
 
     return result_row
 
@@ -172,6 +336,7 @@ def run_all_evals(
     verbose: bool = False,
     filter_type: str | None = None,
     single_index: int | None = None,
+    use_judge: bool = False,
 ) -> list[dict]:
     """Run all eval questions and return results."""
     results = []
@@ -196,14 +361,23 @@ def run_all_evals(
         q_type = q["expected_type"]
         print(f"  [{i+1}/{total}] ({q_type}) \"{q_text}\"")
 
-        result = run_single_eval(q, verbose=verbose)
+        result = run_single_eval(q, verbose=verbose, use_judge=use_judge)
 
         # Print inline result
         r_icon = "✅" if result["routing_correct"] else "❌"
         s_icon = "✅" if result["retrieval_hit"] else "❌"
         a_score = result["answer_quality"]
         a_icon = "✅" if a_score >= 0.75 else "⚠️" if a_score >= 0.5 else "❌"
-        print(f"         Route: {r_icon}  Retrieval: {s_icon}  Quality: {a_icon} ({a_score:.0%})")
+
+        line = f"         Route: {r_icon}  Retrieval: {s_icon}  Quality: {a_icon} ({a_score:.0%})"
+
+        # Add judge score if available
+        if "judge_overall" in result:
+            j = result["judge_overall"]
+            j_icon = "✅" if j >= 4 else "⚠️" if j >= 3 else "❌"
+            line += f"  Judge: {j_icon} ({j}/5)"
+
+        print(line)
 
         if result["error"]:
             print(f"         ⚠️ Error: {result['error']}")
@@ -230,17 +404,35 @@ def print_summary(results: list[dict]) -> None:
     retrieval_prec = sum(r["retrieval_hit"] for r in results) / total
     avg_quality = sum(r["answer_quality"] for r in results) / total
 
+    has_judge = "judge_overall" in results[0]
+
     print(f"\n{'=' * 60}")
     print(f"  EVAL RESULTS — {total} questions")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'=' * 60}")
     print(f"  Routing accuracy:     {routing_acc:>6.0%}  {'✅' if routing_acc >= 0.85 else '⚠️'} (target: ≥85%)")
     print(f"  Retrieval precision:  {retrieval_prec:>6.0%}  {'✅' if retrieval_prec >= 0.80 else '⚠️'} (target: ≥80%)")
-    print(f"  Answer quality:       {avg_quality:>6.0%}  {'✅' if avg_quality >= 0.75 else '⚠️'} (target: ≥75%)")
+    print(f"  Answer quality (kw):  {avg_quality:>6.0%}  {'✅' if avg_quality >= 0.75 else '⚠️'} (target: ≥75%)")
+
+    if has_judge:
+        avg_accuracy = sum(r.get("judge_accuracy", 0) for r in results) / total
+        avg_complete = sum(r.get("judge_completeness", 0) for r in results) / total
+        avg_sources = sum(r.get("judge_source_quality", 0) for r in results) / total
+        avg_overall = sum(r.get("judge_overall", 0) for r in results) / total
+
+        print(f"\n  ── LLM Judge Scores (GPT-4o, 1-5 scale) ──")
+        print(f"  Factual accuracy:     {avg_accuracy:>5.1f}  {'✅' if avg_accuracy >= 4 else '⚠️' if avg_accuracy >= 3 else '❌'}")
+        print(f"  Completeness:         {avg_complete:>5.1f}  {'✅' if avg_complete >= 4 else '⚠️' if avg_complete >= 3 else '❌'}")
+        print(f"  Source quality:        {avg_sources:>5.1f}  {'✅' if avg_sources >= 4 else '⚠️' if avg_sources >= 3 else '❌'}")
+        print(f"  Overall:              {avg_overall:>5.1f}  {'✅' if avg_overall >= 4 else '⚠️' if avg_overall >= 3 else '❌'}")
 
     # Per-type breakdown
-    print(f"\n  {'Type':<20} {'Route':>6} {'Retrieval':>10} {'Quality':>8}  {'N':>3}")
-    print(f"  {'─' * 52}")
+    header = f"  {'Type':<20} {'Route':>6} {'Retrieval':>10} {'Kw Qual':>8}"
+    if has_judge:
+        header += f"  {'Judge':>6}"
+    header += f"  {'N':>3}"
+    print(f"\n{header}")
+    print(f"  {'─' * (58 if has_judge else 50)}")
 
     types = sorted(set(r["expected_type"] for r in results))
     for t in types:
@@ -249,10 +441,21 @@ def print_summary(results: list[dict]) -> None:
         t_route = sum(r["routing_correct"] for r in t_results) / n
         t_retr = sum(r["retrieval_hit"] for r in t_results) / n
         t_qual = sum(r["answer_quality"] for r in t_results) / n
-        print(f"  {t:<20} {t_route:>5.0%} {t_retr:>9.0%} {t_qual:>7.0%}  {n:>3}")
+        line = f"  {t:<20} {t_route:>5.0%} {t_retr:>9.0%} {t_qual:>7.0%}"
+        if has_judge:
+            t_judge = sum(r.get("judge_overall", 0) for r in t_results) / n
+            line += f"  {t_judge:>5.1f}"
+        line += f"  {n:>3}"
+        print(line)
 
     # Failures detail
     failures = [r for r in results if not r["routing_correct"] or not r["retrieval_hit"] or r["answer_quality"] < 0.5]
+
+    # Add judge failures (scored 2 or below)
+    if has_judge:
+        judge_failures = [r for r in results if r.get("judge_overall", 5) <= 2 and r not in failures]
+        failures.extend(judge_failures)
+
     if failures:
         print(f"\n  ── Issues to Investigate ──")
         for r in failures:
@@ -263,7 +466,11 @@ def print_summary(results: list[dict]) -> None:
                 issues.append("correct source not retrieved")
             if r["answer_quality"] < 0.5:
                 missed = r.get("facts_missed", "")
-                issues.append(f"low quality ({r['answer_quality']:.0%}), missed: {missed}")
+                issues.append(f"low keyword quality ({r['answer_quality']:.0%}), missed: {missed}")
+            if has_judge and r.get("judge_overall", 5) <= 2:
+                issues.append(f"judge score: {r['judge_overall']}/5")
+                if r.get("judge_errors"):
+                    issues.append(f"judge found errors: {r['judge_errors']}")
             print(f"  ⚠️  \"{r['question']}\"")
             for issue in issues:
                 print(f"      → {issue}")
@@ -277,8 +484,18 @@ def print_summary(results: list[dict]) -> None:
     if avg_quality < 0.75:
         print("  📌 Quality: Check if the right context IS retrieved (retrieval issue) or")
         print("              if the LLM is ignoring context (prompt issue). Different fixes needed.")
+    if has_judge:
+        avg_overall = sum(r.get("judge_overall", 0) for r in results) / total
+        if avg_overall < 3.5:
+            print("  📌 Judge: Low overall scores suggest factual errors in answers.")
+            print("              Check the judge_errors column in results.csv for specifics.")
+        avg_sources = sum(r.get("judge_source_quality", 0) for r in results) / total
+        if avg_sources < 3.5:
+            print("  📌 Sources: Judge flagged poor source citations. Consider adding")
+            print("              chunk-level relevance thresholds or post-generation verification.")
     if routing_acc >= 0.85 and retrieval_prec >= 0.80 and avg_quality >= 0.75:
-        print("  🎉 All metrics meet target benchmarks! Phase 5 is complete.")
+        if not has_judge or avg_overall >= 3.5:
+            print("  🎉 All metrics meet target benchmarks!")
 
 
 def save_results(results: list[dict]) -> None:
@@ -301,6 +518,8 @@ def main():
     parser = argparse.ArgumentParser(description="Run DominionSage evaluation suite.")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Show full answers and missed facts.")
+    parser.add_argument("--judge", "-j", action="store_true",
+                        help="Enable LLM-as-judge scoring (GPT-4o, ~$0.50 for 20 questions).")
     parser.add_argument("--type", "-t", type=str, default=None,
                         choices=["card_lookup", "filtered_search", "rules_question", "strategy_combo"],
                         help="Only run evals for a specific query type.")
@@ -310,6 +529,8 @@ def main():
 
     print("=" * 60)
     print("  DominionSage — Evaluation Suite")
+    if args.judge:
+        print("  (LLM-as-Judge enabled — GPT-4o will grade each answer)")
     print("=" * 60)
 
     # Load questions
@@ -335,6 +556,7 @@ def main():
         verbose=args.verbose,
         filter_type=args.type,
         single_index=args.question,
+        use_judge=args.judge,
     )
 
     # Report
