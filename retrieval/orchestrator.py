@@ -32,6 +32,7 @@ def answer_question(
     query: str,
     expansion: str | None = None,
     conversation_history: list[dict] | None = None,
+    kingdom_context: str | None = None,
 ) -> dict:
     """
     Full pipeline: rewrite → route → retrieve → synthesize.
@@ -43,6 +44,10 @@ def answer_question(
                               "role" ("user"/"assistant") and "content".
                               Used to resolve follow-up references like
                               "it", "that card", "which ones", etc.
+        kingdom_context:      Optional string describing the active kingdom
+                              cards (from Kingdom Advisor). Injected into
+                              the synthesizer prompt so the chat can answer
+                              questions about the current game setup.
 
     Returns:
         Dict with:
@@ -78,7 +83,7 @@ def answer_question(
         context["sources"] = _retrieve_strategy_combo(query, expansion)
 
     # Step 3: Synthesize the final answer
-    answer = synthesize_answer(query, context)
+    answer = synthesize_answer(query, context, kingdom_context=kingdom_context)
 
     # Step 4: Append any meta notes directly to the answer
     for source in context["sources"]:

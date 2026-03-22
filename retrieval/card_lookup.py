@@ -162,6 +162,79 @@ def filtered_search(filters: dict) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────
+# Kingdom Advisor helpers
+# ─────────────────────────────────────────────────────────────────
+
+# Card types that are NOT supply cards (you can't pick these for a kingdom)
+_NON_SUPPLY_TYPES = [
+    "Event", "Landmark", "Way", "Project", "Boon",
+    "Hex", "State", "Artifact",
+]
+
+# Basic treasure/victory/curse cards that are always in the game
+_ALWAYS_AVAILABLE = {
+    "Copper", "Silver", "Gold", "Platinum",
+    "Estate", "Duchy", "Province", "Colony",
+    "Curse", "Potion",
+}
+
+
+def get_all_kingdom_card_names() -> list[str]:
+    """
+    Return a sorted list of all supply card names (kingdom-eligible).
+
+    Excludes non-supply types (Events, Landmarks, etc.) and basic
+    treasure/victory cards that are always in every game.
+    Used to populate the multiselect dropdown in the Kingdom Advisor UI.
+    """
+    client = _get_client()
+
+    result = client.table("cards").select("name, type").execute()
+
+    names = []
+    for card in result.data:
+        card_type = card.get("type", "")
+        card_name = card.get("name", "")
+
+        # Skip non-supply types
+        if any(nst in card_type for nst in _NON_SUPPLY_TYPES):
+            continue
+
+        # Skip basic cards
+        if card_name in _ALWAYS_AVAILABLE:
+            continue
+
+        names.append(card_name)
+
+    return sorted(set(names))
+
+
+def get_kingdom_cards_by_names(card_names: list[str]) -> list[dict]:
+    """
+    Batch-fetch full card data for a list of card names.
+
+    Uses exact name matching (case-insensitive). Returns cards in the
+    same order they were requested when possible.
+    """
+    client = _get_client()
+
+    # Supabase .in_() filter for batch lookup
+    result = client.table("cards") \
+        .select("*") \
+        .in_("name", card_names) \
+        .execute()
+
+    # Sort results to match input order
+    name_order = {name.lower(): i for i, name in enumerate(card_names)}
+    sorted_cards = sorted(
+        result.data,
+        key=lambda c: name_order.get(c["name"].lower(), 999)
+    )
+
+    return sorted_cards
+
+
+# ─────────────────────────────────────────────────────────────────
 # Debug / testing
 # ─────────────────────────────────────────────────────────────────
 

@@ -209,7 +209,7 @@ def format_context(sources: list[dict]) -> tuple[str, dict]:
 # Synthesis
 # ─────────────────────────────────────────────────────────────────
 
-def synthesize_answer(query: str, context: dict) -> str:
+def synthesize_answer(query: str, context: dict, kingdom_context: str | None = None) -> str:
     """
     Generate a final answer using retrieved context.
 
@@ -218,8 +218,11 @@ def synthesize_answer(query: str, context: dict) -> str:
     (e.g., "[Source 2]" → "(Seaside rulebook p.5)").
 
     Args:
-        query:   The user's original question.
-        context: Dict with "query_type" and "sources" list.
+        query:           The user's original question.
+        context:         Dict with "query_type" and "sources" list.
+        kingdom_context: Optional string listing the active kingdom cards
+                         (from the Kingdom Advisor). When present, the LLM
+                         can reference these cards in its answer.
 
     Returns:
         The LLM's generated answer string with resolved citations.
@@ -244,9 +247,20 @@ def synthesize_answer(query: str, context: dict) -> str:
     }
     hint = type_hints.get(query_type, "")
 
+    # Build kingdom context section if active
+    kingdom_section = ""
+    if kingdom_context:
+        kingdom_section = (
+            f"\n\n---\n\n"
+            f"ACTIVE KINGDOM (from Kingdom Advisor):\n"
+            f"{kingdom_context}\n"
+            f"If the user's question relates to strategy or card choices, "
+            f"consider these kingdom cards in your answer."
+        )
+
     user_message = f"""Context:
 {context_text}
-
+{kingdom_section}
 ---
 
 Question: {query}
