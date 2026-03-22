@@ -21,8 +21,14 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from retrieval.orchestrator import answer_question
-from retrieval.card_lookup import get_all_kingdom_card_names, get_kingdom_cards_by_names
+from retrieval.card_lookup import (
+    get_all_kingdom_card_names,
+    get_kingdom_cards_by_names,
+    get_all_expansion_names,
+    get_random_kingdom,
+)
 from retrieval.kingdom_advisor import analyze_kingdom
+from data.kingdom_presets import KINGDOM_PRESETS
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -295,13 +301,59 @@ with kingdom_tab:
     def _load_card_names():
         return get_all_kingdom_card_names()
 
+    @st.cache_data(ttl=600)
+    def _load_expansion_names():
+        return get_all_expansion_names()
+
     try:
         all_card_names = _load_card_names()
     except Exception as e:
         st.error(f"Could not load card names: {e}")
         all_card_names = []
 
-    # Card selection
+    try:
+        all_expansions = _load_expansion_names()
+    except Exception:
+        all_expansions = []
+
+    # ── Quick-pick: Presets & Random ─────────────────────────────
+    st.subheader("⚡ Quick Pick")
+    qp_col1, qp_col2 = st.columns(2)
+
+    with qp_col1:
+        # Build grouped options for the preset selectbox
+        preset_options = {f"{p['name']}  ({' + '.join(p['expansions'])})": p for p in KINGDOM_PRESETS}
+        preset_choice = st.selectbox(
+            "📖 Official Preset",
+            options=[""] + list(preset_options.keys()),
+            index=0,
+            help="Official recommended sets from the Dominion rulebooks.",
+            key="preset_selectbox",
+        )
+        if st.button("Load Preset", disabled=not preset_choice, key="load_preset_btn"):
+            preset = preset_options[preset_choice]
+            st.session_state["kingdom_multiselect"] = preset["cards"]
+            st.rerun()
+
+    with qp_col2:
+        owned_expansions = st.multiselect(
+            "🎲 Random from Expansions",
+            options=all_expansions,
+            placeholder="Select your expansions...",
+            help="Pick the expansions you own, then generate a random kingdom.",
+            key="owned_expansions",
+        )
+        if st.button("Generate Random", disabled=len(owned_expansions) == 0, key="random_kingdom_btn"):
+            random_cards = get_random_kingdom(owned_expansions)
+            if len(random_cards) < 10:
+                st.warning(f"Only {len(random_cards)} eligible cards found — need 10.")
+            else:
+                st.session_state["kingdom_multiselect"] = random_cards
+                st.rerun()
+
+    st.divider()
+
+    # ── Card selection ───────────────────────────────────────────
     selected_cards = st.multiselect(
         "Select 10 kingdom cards",
         options=all_card_names,

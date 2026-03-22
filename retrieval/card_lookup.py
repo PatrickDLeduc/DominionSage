@@ -234,6 +234,60 @@ def get_kingdom_cards_by_names(card_names: list[str]) -> list[dict]:
     return sorted_cards
 
 
+def get_all_expansion_names() -> list[str]:
+    """Return a sorted list of distinct expansion names from the cards table."""
+    client = _get_client()
+    result = client.table("cards").select("expansion").execute()
+
+    expansions = set()
+    for card in result.data:
+        exp = card.get("expansion")
+        if exp:
+            expansions.add(exp)
+
+    return sorted(expansions)
+
+
+def get_random_kingdom(expansions: list[str]) -> list[str]:
+    """
+    Randomly select 10 kingdom-eligible card names from the given expansions.
+
+    Uses the same filtering logic as get_all_kingdom_card_names() to exclude
+    non-supply types and basic cards.
+    """
+    import random
+
+    client = _get_client()
+
+    # Fetch all cards from the selected expansions
+    result = client.table("cards") \
+        .select("name, type") \
+        .in_("expansion", expansions) \
+        .execute()
+
+    # Apply the same kingdom-eligibility filters
+    eligible = []
+    for card in result.data:
+        card_name = card["name"]
+        card_type = card.get("type", "")
+
+        if card_name in _ALWAYS_AVAILABLE:
+            continue
+
+        if any(nst in card_type for nst in _NON_SUPPLY_TYPES):
+            continue
+
+        eligible.append(card_name)
+
+    # Deduplicate and pick 10
+    eligible = list(set(eligible))
+
+    if len(eligible) < 10:
+        return sorted(eligible)  # not enough cards
+
+    return sorted(random.sample(eligible, 10))
+
+
 # ─────────────────────────────────────────────────────────────────
 # Debug / testing
 # ─────────────────────────────────────────────────────────────────
