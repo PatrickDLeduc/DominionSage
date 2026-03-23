@@ -13,6 +13,7 @@ Ask about cards, rules, combos, and strategy. Every answer shows its sources so 
 1. **💬 AI Chat Assistant**: Ask about card rules, combos, or strategies. The hybrid retrieval engine pulls exact card text from the PostgreSQL database and semantic rulings from the vectorized rulebooks.
 2. **🏰 Kingdom Advisor**: Build a custom kingdom, load an official rulebook preset, or generate a random set from your owned expansions. The selected kingdom is shared with the Chat tab so the AI knows exactly what cards are in play.
 3. **🎮 Bot Simulator**: Run bot-vs-bot games (Big Money vs Engine) on any subset of the 26 Base Set cards. Play hundreds of games in milliseconds, view buy frequencies and win rates, and have GPT-4o-mini analyze the results for strategic insights.
+4. **🔒 Hardened Architecture**: Includes prompt injection defenses (XML tag sandboxing), distributed rate limiting backed by Supabase (with graceful memory fallback), indefinite UI caching for low DB overhead, and masked error handling.
 
 ---
 
@@ -32,8 +33,9 @@ User Question
      ├── Filtered Search ───▶ Card Database (SQL WHERE)
      │   "Show me all 4-cost Actions"  │
      │                                 │
-     ├── Rules Question ────▶ Vector Store (pgvector)
-     │   "When can I play Reactions?"   │
+     ├── Rules Question ────▶ Hybrid Search (Reciprocal Rank Fusion)
+     │   "When can I play Reactions?"  │  ├── Vector Store (pgvector)
+     │                                 │  └── Keyword Search (BM25)
      │                                 │
      └── Strategy / Combo ──▶ Both paths
          "What combos with Throne Room?"│
@@ -49,7 +51,7 @@ User Question
 
 ## Why Hybrid Retrieval?
 
-Card lookups need precision — exact name matches, cost filters, attribute queries. Vector-only retrieval would lose these structured relationships and force every query through an embedding + similarity search, even when a simple `WHERE cost <= 4` is faster and more accurate. Conversely, SQL alone can't handle open-ended rules questions like "When can I play Reaction cards?" where the answer requires semantic understanding of rulebook text. The hybrid approach uses the right tool for each query type.
+Card lookups need precision — exact name matches, cost filters, attribute queries. Vector-only retrieval would lose these structured relationships and force every query through an embedding + similarity search, even when a simple `WHERE cost <= 4` is faster and more accurate. Conversely, SQL alone can't handle open-ended rules questions like "When can I play Reaction cards?" where the answer requires semantic understanding of rulebook text. To achieve maximum recall on open-ended rules, the system combines **embeddings via pgvector** with **local keyword search via BM25**, fusing the results using **Reciprocal Rank Fusion (RRF)**. This hybrid approach uses the exact right tool for each query type.
 
 ## Eval Results
 
@@ -69,7 +71,6 @@ The eval suite tests routing correctness (did the query go to the right retrieva
 
 ## What I'd Do Next
 
-- **BM25 + vector hybrid search** — combine keyword matching with semantic search using reciprocal rank fusion, eliminating the failure mode where the correct chunk contains the right keywords but has a low vector similarity score.
 - **LLM-as-judge evaluation** — use a more powerful model to score answer quality semantically, enabling evaluation at scale without hand-labeling.
 - **Conversation memory** — add a short-term context window for follow-up questions like "What about with Village?" after asking about Throne Room combos.
 - **Cross-game generalization** — the hybrid retrieval architecture is game-agnostic and could support Magic: The Gathering, Ark Nova, or other card games.
@@ -159,6 +160,8 @@ dominionsage/
 │   ├── router.py            # Rules-based query classifier (4 types)
 │   ├── card_lookup.py       # SQL card queries
 │   ├── rules_search.py      # pgvector semantic search
+│   ├── bm25_search.py       # local term frequency keyword search
+│   ├── hybrid_search.py     # RRF fusion of vector + BM25 results
 │   ├── orchestrator.py      # Multi-path retrieval coordinator
 │   └── synthesizer.py       # GPT-4o-mini answer generation
 ├── evals/
