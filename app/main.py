@@ -29,6 +29,7 @@ from retrieval.card_lookup import (
 )
 from retrieval.kingdom_advisor import analyze_kingdom
 from data.kingdom_presets import KINGDOM_PRESETS
+from simulation.runner import run_simulation, analyze_simulation
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -194,7 +195,7 @@ def render_sources(sources: list[dict]) -> None:
 # Tabbed layout: Chat + Kingdom Advisor
 # ─────────────────────────────────────────────────────────────────
 
-chat_tab, kingdom_tab = st.tabs(["💬 Chat", "🏰 Kingdom Advisor"])
+chat_tab, kingdom_tab, sim_tab = st.tabs(["💬 Chat", "🏰 Kingdom Advisor", "🎮 Simulator"])
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -441,3 +442,96 @@ with kingdom_tab:
                                     stats.append(f"+{card['plus_coins']} Coins")
                                 if stats:
                                     st.markdown(f"*{' · '.join(stats)}*")
+
+
+# ─────────────────────────────────────────────────────────────────
+# Tab 3: Simulator
+# ─────────────────────────────────────────────────────────────────
+
+with sim_tab:
+    st.header("🎮 Bot Simulator")
+    st.markdown(
+        "Run bot-vs-bot Dominion simulations to discover strategies through data. "
+        "Two bots play hundreds of games, and AI analyzes the results for insights."
+    )
+
+    # Get kingdom from the advisor tab, or use First Game as default
+    sim_kingdom = st.session_state.get("kingdom_multiselect", [])
+    if not sim_kingdom or len(sim_kingdom) != 10:
+        sim_kingdom = ["Cellar", "Market", "Merchant", "Militia", "Mine",
+                       "Moat", "Remodel", "Smithy", "Village", "Workshop"]
+
+    st.info(f"**Kingdom**: {', '.join(sim_kingdom)}")
+    st.caption("Select cards in the Kingdom Advisor tab to simulate a different kingdom.")
+
+    sim_col1, sim_col2 = st.columns(2)
+    with sim_col1:
+        n_games = st.slider("Number of games", 50, 1000, 200, step=50,
+                            key="sim_n_games")
+    with sim_col2:
+        st.markdown("**Bots**: Big Money vs Engine")
+        st.caption("Big Money focuses on treasures; Engine builds Village/Smithy combos.")
+
+    if st.button("🚀 Run Simulation", key="run_sim_btn", type="primary"):
+        with st.spinner(f"Simulating {n_games} games..."):
+            stats = run_simulation(sim_kingdom, n_games=n_games)
+            st.session_state["sim_stats"] = stats
+            # Clear previous analysis so it doesn't show stale results
+            st.session_state.pop("sim_analysis", None)
+
+    # Display results
+    if "sim_stats" in st.session_state:
+        stats = st.session_state["sim_stats"]
+        st.divider()
+
+        # Win rates
+        st.subheader("📊 Results")
+        r_col1, r_col2, r_col3 = st.columns(3)
+        for i, name in enumerate(stats["bot_names"]):
+            col = [r_col1, r_col2][i]
+            with col:
+                win_pct = stats["win_rates"][name]
+                st.metric(f"{name}", f"{stats['wins'][name]} wins",
+                          delta=f"{win_pct}%")
+        with r_col3:
+            st.metric("Ties", stats["ties"])
+
+        # VP and turns
+        vp_col1, vp_col2, vp_col3 = st.columns(3)
+        for i, name in enumerate(stats["bot_names"]):
+            col = [vp_col1, vp_col2][i]
+            with col:
+                st.metric(f"Avg VP ({name})", stats["avg_vp"][name])
+        with vp_col3:
+            st.metric("Avg Turns", stats["avg_turns"])
+
+        # Buy frequency
+        st.subheader("🛒 Average Cards Purchased per Game")
+        buy_col1, buy_col2 = st.columns(2)
+        for i, name in enumerate(stats["bot_names"]):
+            col = [buy_col1, buy_col2][i]
+            with col:
+                st.markdown(f"**{name}**")
+                buys = stats["buy_frequency"][name]
+                for card, avg in buys.items():
+                    if avg >= 0.1:
+                        bar_len = int(avg * 3)
+                        st.markdown(f"`{card:20s}` {'█' * bar_len} {avg}")
+
+        # GPT Analysis
+        st.divider()
+        st.subheader("🧠 AI Strategy Analysis")
+        if "sim_analysis" not in st.session_state:
+            if st.button("Analyze with AI", key="analyze_sim_btn"):
+                with st.spinner("AI is analyzing the simulation data..."):
+                    try:
+                        analysis = analyze_simulation(stats)
+                        st.session_state["sim_analysis"] = analysis
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Analysis failed: {e}")
+        else:
+            st.markdown(st.session_state["sim_analysis"])
+            if st.button("Re-analyze", key="reanalyze_btn"):
+                del st.session_state["sim_analysis"]
+                st.rerun()
