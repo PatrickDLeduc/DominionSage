@@ -1,10 +1,18 @@
 # 🃏 DominionSage
 
-**An AI-powered Dominion card game assistant using hybrid retrieval — combining a structured PostgreSQL card database with semantic search over rulebook text via vector embeddings.**
+**An AI-powered Dominion card game assistant using hybrid retrieval — combining a structured PostgreSQL database of 500+ cards from all 15 expansions with semantic search over rulebook text via vector embeddings.**
 
 Ask about cards, rules, combos, and strategy. Every answer shows its sources so you can verify the information.
 
 🔗 **[Try it live →](https://dominionsage.streamlit.app/)**
+
+---
+
+## Features
+
+1. **💬 AI Chat Assistant**: Ask about card rules, combos, or strategies. The hybrid retrieval engine pulls exact card text from the PostgreSQL database and semantic rulings from the vectorized rulebooks.
+2. **🏰 Kingdom Advisor**: Build a custom kingdom, load an official rulebook preset, or generate a random set from your owned expansions. The selected kingdom is shared with the Chat tab so the AI knows exactly what cards are in play.
+3. **🎮 Bot Simulator**: Run bot-vs-bot games (Big Money vs Engine) on any subset of the 26 Base Set cards. Play hundreds of games in milliseconds, view buy frequencies and win rates, and have GPT-4o-mini analyze the results for strategic insights.
 
 ---
 
@@ -64,7 +72,6 @@ The eval suite tests routing correctness (did the query go to the right retrieva
 - **BM25 + vector hybrid search** — combine keyword matching with semantic search using reciprocal rank fusion, eliminating the failure mode where the correct chunk contains the right keywords but has a low vector similarity score.
 - **LLM-as-judge evaluation** — use a more powerful model to score answer quality semantically, enabling evaluation at scale without hand-labeling.
 - **Conversation memory** — add a short-term context window for follow-up questions like "What about with Village?" after asking about Throne Room combos.
-- **Expand to all Dominion expansions** — the card database currently covers Base and Seaside (~59 cards); scaling to all 14+ expansions would bring it to 500+ cards.
 - **Cross-game generalization** — the hybrid retrieval architecture is game-agnostic and could support Magic: The Gathering, Ark Nova, or other card games.
 
 ## Tech Stack
@@ -158,6 +165,11 @@ dominionsage/
 │   ├── questions.json       # 20 hand-labeled eval questions
 │   ├── run_evals.py         # Automated scoring (routing, retrieval, quality)
 │   └── results.csv          # Eval output
+├── simulation/
+│   ├── engine.py            # Core game state & turn loop
+│   ├── cards.py             # Card definitions & effects (Base Set)
+│   ├── bots.py              # AI strategies (Big Money, Engine)
+│   └── runner.py            # Orchestrator & GPT analysis
 ├── match_chunks.sql         # Supabase RPC functions for vector search
 ├── requirements.txt
 ├── .env.example
