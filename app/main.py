@@ -267,7 +267,8 @@ with chat_tab:
                     sources = result["sources"]
                     query_type = result["query_type"]
                 except Exception as e:
-                    answer = f"Sorry, something went wrong: {str(e)}"
+                    print(f"Error during chat query: {e}")
+                    answer = "Sorry, our servers are currently busy or encountered an error. Please try again in a moment."
                     sources = []
                     query_type = "error"
                     result = {}
@@ -302,24 +303,26 @@ with kingdom_tab:
         "strategy breakdown — opening buys, key combos, and archetype advice."
     )
 
-    # Load card names for the dropdown (cached to avoid repeated DB calls)
-    @st.cache_data(ttl=600)
+    # Load card names for the dropdown (cached indefinitely to avoid repeated DB calls)
+    @st.cache_data
     def _load_card_names():
         return get_all_kingdom_card_names()
 
-    @st.cache_data(ttl=600)
+    @st.cache_data
     def _load_expansion_names():
         return get_all_expansion_names()
 
     try:
         all_card_names = _load_card_names()
     except Exception as e:
-        st.error(f"Could not load card names: {e}")
+        print(f"Could not load card names: {e}")
+        st.error("Could not reach the database to load card names. Please try again later.")
         all_card_names = []
 
     try:
         all_expansions = _load_expansion_names()
-    except Exception:
+    except Exception as e:
+        print(f"Could not load expansion names: {e}")
         all_expansions = []
 
     # ── Quick-pick: Presets & Random ─────────────────────────────
@@ -404,7 +407,8 @@ with kingdom_tab:
                 st.session_state["kingdom_advice"] = advice
                 st.session_state["kingdom_cards_data"] = cards
             except Exception as e:
-                st.error(f"Analysis failed: {e}")
+                print(f"Error during kingdom analysis: {e}")
+                st.error("Analysis failed due to a server error. Please try again in a moment.")
 
     # Display results (persisted across reruns via session state)
     if "kingdom_advice" in st.session_state and st.session_state.get("kingdom_multiselect"):
@@ -543,7 +547,8 @@ with sim_tab:
                         st.session_state["sim_analysis"] = analysis
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Analysis failed: {e}")
+                        print(f"Error during simulation analysis: {e}")
+                        st.error("Analysis failed due to a server error. Please try again in a moment.")
         else:
             st.markdown(st.session_state["sim_analysis"])
             if st.button("Re-analyze", key="reanalyze_btn"):
