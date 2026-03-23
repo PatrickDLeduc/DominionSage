@@ -30,6 +30,7 @@ from retrieval.card_lookup import (
 from retrieval.kingdom_advisor import analyze_kingdom
 from data.kingdom_presets import KINGDOM_PRESETS
 from simulation.runner import run_simulation, analyze_simulation
+from simulation.bots import AVAILABLE_BOTS
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -469,12 +470,15 @@ with sim_tab:
         n_games = st.slider("Number of games", 50, 1000, 200, step=50,
                             key="sim_n_games")
     with sim_col2:
-        st.markdown("**Bots**: Big Money vs Engine")
-        st.caption("Big Money focuses on treasures; Engine builds Village/Smithy combos.")
+        bot_names = list(AVAILABLE_BOTS.keys())
+        bot1_name = st.selectbox("Bot 1 Strategy", bot_names, index=0)
+        bot2_name = st.selectbox("Bot 2 Strategy", bot_names, index=1)
 
     if st.button("🚀 Run Simulation", key="run_sim_btn", type="primary"):
         with st.spinner(f"Simulating {n_games} games..."):
-            stats = run_simulation(sim_kingdom, n_games=n_games)
+            stats = run_simulation(sim_kingdom, n_games=n_games, 
+                                   bot1_cls=AVAILABLE_BOTS[bot1_name], 
+                                   bot2_cls=AVAILABLE_BOTS[bot2_name])
             st.session_state["sim_stats"] = stats
             # Clear previous analysis so it doesn't show stale results
             st.session_state.pop("sim_analysis", None)

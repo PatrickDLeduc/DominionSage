@@ -323,3 +323,157 @@ class EngineBot(Bot):
             if cd and cd.cost <= max_cost and game.can_gain(card):
                 return card
         return None
+
+
+# ─────────────────────────────────────────────────────────────────
+# Bot 3: Attacker
+# ─────────────────────────────────────────────────────────────────
+
+class AttackerBot(Bot):
+    """
+    Focuses entirely on disrupting the opponent. Buys Witch, Militia, Bandit early.
+    """
+    name = "Attacker"
+
+    def choose_action(self, game: "GameState", player: "PlayerState") -> str | None:
+        # Play attacks first
+        action_priority = ["Witch", "Militia", "Bandit", "Laboratory", "Festival",
+                           "Village", "Market", "Smithy", "Moat"]
+        for card in action_priority:
+            if card in player.hand:
+                return card
+        return None
+
+    def choose_buy(self, game: "GameState", player: "PlayerState") -> str | None:
+        coins = player.coins
+        provinces_left = game.supply.get("Province", 0)
+
+        if coins >= 8 and game.can_gain("Province"):
+            return "Province"
+            
+        # Get attacks as top priority
+        if coins >= 5 and game.can_gain("Witch") and player.count_in_deck("Witch") < 2:
+            return "Witch"
+        if coins >= 5 and game.can_gain("Bandit") and player.count_in_deck("Bandit") < 2:
+            return "Bandit"
+        if coins >= 4 and game.can_gain("Militia") and player.count_in_deck("Militia") < 2:
+            return "Militia"
+            
+        if coins >= 6 and game.can_gain("Gold"):
+            return "Gold"
+        if coins >= 5 and provinces_left <= 4 and game.can_gain("Duchy"):
+            return "Duchy"
+        if coins >= 3 and game.can_gain("Silver"):
+            return "Silver"
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────
+# Bot 4: TrashBot (Thin Deck)
+# ─────────────────────────────────────────────────────────────────
+
+class TrashBot(Bot):
+    """
+    Obsessively thins its deck. Buys Chapel/Sentry/Moneylender and destroys starting cards.
+    """
+    name = "TrashBot"
+
+    def choose_action(self, game: "GameState", player: "PlayerState") -> str | None:
+        # Trashers first
+        action_priority = ["Chapel", "Sentry", "Moneylender", "Laboratory", 
+                           "Village", "Market", "Smithy"]
+        for card in action_priority:
+            if card in player.hand:
+                return card
+        return None
+
+    def choose_buy(self, game: "GameState", player: "PlayerState") -> str | None:
+        coins = player.coins
+        total_cards = player.total_cards()
+        
+        # Priority 1: Get a trasher immediately
+        if coins >= 5 and game.can_gain("Sentry") and player.count_in_deck("Sentry") < 1:
+            return "Sentry"
+        if coins >= 4 and game.can_gain("Moneylender") and player.count_in_deck("Moneylender") < 1:
+            return "Moneylender"
+        if coins >= 2 and game.can_gain("Chapel") and player.count_in_deck("Chapel") < 1:
+            return "Chapel"
+            
+        # Refuse to buy victory cards if deck is still full of junk
+        bad_cards = player.count_in_deck("Copper") + player.count_in_deck("Estate") + player.count_in_deck("Curse")
+        deck_is_clean = bad_cards <= 2
+        
+        if coins >= 8 and game.can_gain("Province") and deck_is_clean:
+            return "Province"
+        if coins >= 6 and game.can_gain("Gold"):
+            return "Gold"
+        if coins >= 5 and game.supply.get("Province", 0) <= 3 and game.can_gain("Duchy") and deck_is_clean:
+            return "Duchy"
+            
+        # Only buy silver if we have a trasher to get rid of coppers
+        has_trasher = player.count_in_deck("Chapel") > 0 or player.count_in_deck("Moneylender") > 0 or player.count_in_deck("Sentry") > 0
+        if coins >= 3 and game.can_gain("Silver") and has_trasher:
+            return "Silver"
+            
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────
+# Bot 5: Rusher
+# ─────────────────────────────────────────────────────────────────
+
+class RusherBot(Bot):
+    """
+    Tries to end the game on 3 empty piles. Avoids Provinces, targets Duchies/Gardens 
+    and actively finishes off cheap piles.
+    """
+    name = "Rusher"
+
+    def choose_action(self, game: "GameState", player: "PlayerState") -> str | None:
+        action_priority = ["Festival", "Workshop", "Village", "Market", "Smithy"]
+        for card in action_priority:
+            if card in player.hand:
+                return card
+        return None
+
+    def choose_buy(self, game: "GameState", player: "PlayerState") -> str | None:
+        coins = player.coins
+        
+        # Find piles that are close to empty (<= 3 cards)
+        low_piles = [pile for pile, count in game.supply.items() if count > 0 and count <= 4]
+        
+        # Rush gardens/duchy
+        if coins >= 5 and game.can_gain("Duchy"):
+            return "Duchy"
+        if coins >= 4 and game.can_gain("Gardens"):
+            return "Gardens"
+            
+        # If we have spare buys, buy out low piles to force end game
+        for pile in low_piles:
+            from simulation.cards import CARD_DEFS
+            cd = CARD_DEFS.get(pile)
+            if cd and coins >= cd.cost and game.can_gain(pile):
+                return pile
+                
+        # Otherwise get cheap stuff to boost Gardens/Deck size
+        if coins >= 3 and game.can_gain("Workshop") and player.count_in_deck("Workshop") < 3:
+            return "Workshop"
+        if coins >= 3 and game.can_gain("Silver"):
+            return "Silver"
+        if game.can_gain("Copper"):
+            return "Copper"
+            
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────
+# Registry
+# ─────────────────────────────────────────────────────────────────
+
+AVAILABLE_BOTS = {
+    "Big Money": BigMoneyBot,
+    "Engine": EngineBot,
+    "Attacker": AttackerBot,
+    "TrashBot": TrashBot,
+    "Rusher": RusherBot,
+}
