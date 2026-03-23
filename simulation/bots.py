@@ -65,6 +65,94 @@ class Bot(ABC):
         """Choose a card to gain with Workshop (cost ≤ 4)."""
         return "Silver"  # safe default
 
+    def choose_artisan_gain(self, game: "GameState", player: "PlayerState") -> str | None:
+        """Choose a card to gain with Artisan (cost ≤ 5)."""
+        return "Market" if game.can_gain("Market") else "Silver"
+
+    def choose_artisan_topdeck(self, game: "GameState", player: "PlayerState") -> str | None:
+        """Choose a card from hand to put onto deck for Artisan."""
+        # Topdeck the card we just gained if possible, or an Action
+        for c in ["Market", "Silver", "Copper"]:
+            if c in player.hand:
+                return c
+        return player.hand[0] if player.hand else None
+
+    def choose_bureaucrat_victory(self, game: "GameState", player: "PlayerState",
+                                  victory_in_hand: list[str]) -> str | None:
+        """Choose a Victory card from hand to topdeck for Bureaucrat."""
+        # Priority: Estate > Duchy > Province (give opponent worst card back)
+        for c in ["Estate", "Duchy", "Province"]:
+            if c in victory_in_hand:
+                return c
+        return victory_in_hand[0] if victory_in_hand else None
+
+    def choose_chapel_trash(self, game: "GameState", player: "PlayerState") -> list[str]:
+        """Choose up to 4 cards to trash with Chapel."""
+        to_trash = []
+        for c in player.hand:
+            if c in ("Curse", "Estate") or (c == "Copper" and player.coins >= 3):
+                to_trash.append(c)
+        return to_trash
+
+    def choose_harbinger_topdeck(self, game: "GameState", player: "PlayerState") -> str | None:
+        """Choose a card from discard to topdeck with Harbinger."""
+        from simulation.cards import CARD_DEFS
+        # Topdeck best action or treasure
+        priority = ["Province", "Gold", "Market", "Smithy", "Silver"]
+        for c in priority:
+            if c in player.discard:
+                return c
+        # Otherwise topdeck best action
+        actions = [c for c in player.discard if "Action" in CARD_DEFS[c].types]
+        if actions:
+            return sorted(actions, key=lambda x: CARD_DEFS[x].cost, reverse=True)[0]
+        return None
+
+    def choose_library_keep_action(self, game: "GameState", player: "PlayerState", card: str) -> bool:
+        """Library: return True to keep an Action card, False to set it aside."""
+        from simulation.cards import CARD_DEFS
+        # Keep it if it gives actions (so we can play it) or we have actions left
+        card_def = CARD_DEFS.get(card)
+        if card_def and card_def.plus_actions > 0:
+            return True
+        if player.actions > 0:
+            return True
+        return False
+
+    def choose_moneylender_trash(self, game: "GameState", player: "PlayerState") -> bool:
+        """Return True to trash a Copper for +3 Coins."""
+        return True
+
+    def choose_poacher_discard(self, game: "GameState", player: "PlayerState") -> str | None:
+        """Choose a card to discard for Poacher."""
+        # Discard worst cards
+        priority = ["Curse", "Estate", "Copper", "Duchy", "Silver"]
+        for c in priority:
+            if c in player.hand:
+                return c
+        return player.hand[0] if player.hand else None
+
+    def choose_sentry_action(self, game: "GameState", player: "PlayerState", card: str) -> str:
+        """Sentry: return 'trash', 'discard', or 'topdeck'."""
+        if card in ("Curse", "Estate", "Copper"):
+            return "trash"
+        if card == "Duchy":
+            return "discard"
+        return "topdeck"
+
+    def choose_throne_room_action(self, game: "GameState", player: "PlayerState",
+                                  actions_in_hand: list[str]) -> str | None:
+        """Choose an Action card to play twice with Throne Room."""
+        from simulation.cards import CARD_DEFS
+        # Throne the most expensive action
+        if not actions_in_hand:
+            return None
+        return sorted(actions_in_hand, key=lambda c: CARD_DEFS[c].cost, reverse=True)[0]
+
+    def choose_vassal_play(self, game: "GameState", player: "PlayerState", card: str) -> bool:
+        """Vassal: return True to play the discarded Action card."""
+        return True
+
 
 # ─────────────────────────────────────────────────────────────────
 # Bot 1: Big Money + Smithy
@@ -82,7 +170,8 @@ class BigMoneyBot(Bot):
 
     def choose_action(self, game: "GameState", player: "PlayerState") -> str | None:
         # Play cantrips and draw cards, but be conservative
-        action_priority = ["Village", "Market", "Merchant", "Smithy",
+        action_priority = ["Laboratory", "Festival", "Village", "Market", "Merchant",
+                           "Smithy", "Council Room", "Witch", "Sentry", "Poacher",
                            "Cellar", "Mine", "Moat"]
         for card in action_priority:
             if card in player.hand:
@@ -99,6 +188,15 @@ class BigMoneyBot(Bot):
             return "Province"
         if coins >= 6 and game.can_gain("Gold"):
             return "Gold"
+            
+        # Optional terminal actions (max 1-2 per deck)
+        if coins >= 5 and game.can_gain("Witch") and player.count_in_deck("Witch") < 1:
+            return "Witch"
+        if coins >= 5 and game.can_gain("Laboratory") and player.count_in_deck("Laboratory") < 2:
+            return "Laboratory"
+        if coins >= 5 and game.can_gain("Council Room") and player.count_in_deck("Council Room") < 1:
+            return "Council Room"
+            
         # Buy at most 2 Smithies
         if coins >= 4 and game.can_gain("Smithy") and player.count_in_deck("Smithy") < 2:
             return "Smithy"
@@ -125,10 +223,11 @@ class EngineBot(Bot):
     name = "Engine"
 
     def choose_action(self, game: "GameState", player: "PlayerState") -> str | None:
-        # Play Villages first (for +Actions), then draw cards
-        action_priority = ["Village", "Market", "Cellar", "Merchant",
-                           "Smithy", "Workshop", "Remodel", "Mine",
-                           "Militia", "Moat"]
+        # Play Villages first (for +Actions), then draw cards, then terminal actions
+        action_priority = ["Chapel", "Laboratory", "Village", "Festival", "Throne Room",
+                           "Market", "Sentry", "Cellar", "Merchant", "Poacher",
+                           "Smithy", "Council Room", "Library", "Witch", "Moneylender",
+                           "Workshop", "Remodel", "Mine", "Militia", "Moat", "Bandit"]
         for card in action_priority:
             if card in player.hand:
                 return card
@@ -152,9 +251,17 @@ class EngineBot(Bot):
 
         # Engine building phase
         if total_cards < 20:
+            # Chapel is top priority for engines early
+            if coins >= 2 and total_cards < 12 and game.can_gain("Chapel") and player.count_in_deck("Chapel") < 1:
+                return "Chapel"
+                
             # Prioritize engine components
+            if coins >= 5 and game.can_gain("Laboratory") and player.count_in_deck("Laboratory") < 3:
+                return "Laboratory"
             if coins >= 5 and game.can_gain("Market") and markets < 3:
                 return "Market"
+            if coins >= 5 and game.can_gain("Festival") and player.count_in_deck("Festival") < 2:
+                return "Festival"
             if coins >= 4 and game.can_gain("Smithy") and smithies < villages + 1 and smithies < 3:
                 return "Smithy"
             if coins >= 3 and game.can_gain("Village") and villages < smithies + 2 and villages < 4:
