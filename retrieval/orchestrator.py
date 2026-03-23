@@ -19,7 +19,7 @@ The orchestrator doesn't cook anything. It coordinates.
 
 from retrieval.router import classify_query, find_card_name_in_query, parse_filters
 from retrieval.card_lookup import lookup_card, filtered_search
-from retrieval.rules_search import search_rules
+from retrieval.hybrid_search import hybrid_search
 from retrieval.synthesizer import synthesize_answer
 from retrieval.rewriter import rewrite_query
 
@@ -166,9 +166,9 @@ def _retrieve_rules(
 ) -> list[dict]:
     """
     Type 3: Rules question.
-    Semantic search over rulebook chunks.
+    Hybrid search (vector + BM25 keyword matching, fused with RRF).
     """
-    chunks = search_rules(query, top_k=5, expansion=expansion)
+    chunks = hybrid_search(query, top_k=5, expansion=expansion)
     return [{"type": "rulebook", "data": c} for c in chunks]
 
 
@@ -187,7 +187,7 @@ def _retrieve_strategy_combo(
         cards = lookup_card(card_name)
         sources.extend([{"type": "card_db", "data": c} for c in cards])
 
-    chunks = search_rules(query, top_k=3, expansion=expansion)
+    chunks = hybrid_search(query, top_k=3, expansion=expansion)
     sources.extend([{"type": "rulebook", "data": c} for c in chunks])
 
     return sources
