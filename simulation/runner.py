@@ -19,12 +19,12 @@ from simulation.bots import BigMoneyBot, EngineBot
 # ─────────────────────────────────────────────────────────────────
 
 def run_simulation(kingdom: list[str], n_games: int = 200,
-                   bot1_cls=BigMoneyBot, bot2_cls=EngineBot) -> dict:
+                   bot_classes: list = None) -> dict:
     """
-    Run n_games of bot1 vs bot2 on the given kingdom and return stats.
+    Run n_games of the given bots on the given kingdom and return stats.
 
     Returns:
-      - bot_names: [str, str]
+      - bot_names: [str, ...]
       - wins: {name: int}
       - ties: int
       - avg_vp: {name: float}
@@ -32,26 +32,26 @@ def run_simulation(kingdom: list[str], n_games: int = 200,
       - buy_frequency: {name: {card: avg_count}}
       - sample_log: log from the last game (for GPT context)
     """
-    bot1 = bot1_cls()
-    bot2 = bot2_cls()
+    if bot_classes is None:
+        bot_classes = [BigMoneyBot, EngineBot]
+        
+    bots = [b() for b in bot_classes]
+    bot_names = [b.name for b in bots]
 
-    wins = {bot1.name: 0, bot2.name: 0}
+    wins = {name: 0 for name in bot_names}
     ties = 0
-    total_vp = {bot1.name: 0, bot2.name: 0}
+    total_vp = {name: 0 for name in bot_names}
     total_turns = 0
-    all_buy_counts = {bot1.name: Counter(), bot2.name: Counter()}
+    all_buy_counts = {name: Counter() for name in bot_names}
     sample_log = []
 
     for i in range(n_games):
-        # Alternate who goes first to reduce first-player advantage
-        if i % 2 == 0:
-            bots = [bot1, bot2]
-            names = [bot1.name, bot2.name]
-        else:
-            bots = [bot2, bot1]
-            names = [bot2.name, bot1.name]
+        # Rotate who goes first to reduce first-player advantage evenly
+        offset = i % len(bots)
+        round_bots = bots[offset:] + bots[:offset]
+        round_names = bot_names[offset:] + bot_names[:offset]
 
-        result = run_game(kingdom, bots, player_names=names)
+        result = run_game(kingdom, round_bots, player_names=round_names)
 
         # Track wins
         if result["winner"] == "Tie":
@@ -85,7 +85,7 @@ def run_simulation(kingdom: list[str], n_games: int = 200,
     }
 
     return {
-        "bot_names": [bot1.name, bot2.name],
+        "bot_names": bot_names,
         "n_games": n_games,
         "kingdom": kingdom,
         "wins": wins,
@@ -108,7 +108,7 @@ def format_stats_for_llm(stats: dict) -> str:
         f"## Dominion Simulation Results",
         f"**Kingdom**: {', '.join(stats['kingdom'])}",
         f"**Games played**: {stats['n_games']}",
-        f"**Bots**: {stats['bot_names'][0]} vs {stats['bot_names'][1]}",
+        f"**Bots**: {' vs '.join(stats['bot_names'])}",
         "",
         f"### Win Rates",
     ]

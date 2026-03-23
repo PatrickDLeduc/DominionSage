@@ -469,16 +469,19 @@ with sim_tab:
     with sim_col1:
         n_games = st.slider("Number of games", 50, 1000, 200, step=50,
                             key="sim_n_games")
+        num_players = st.slider("Number of players", 2, 4, 2, key="sim_num_players")
     with sim_col2:
         bot_names = list(AVAILABLE_BOTS.keys())
-        bot1_name = st.selectbox("Bot 1 Strategy", bot_names, index=0)
-        bot2_name = st.selectbox("Bot 2 Strategy", bot_names, index=1)
+        selected_bots = []
+        for i in range(num_players):
+            default_index = i % len(bot_names)
+            selected_bots.append(st.selectbox(f"Bot {i+1} Strategy", bot_names, index=default_index))
 
     if st.button("🚀 Run Simulation", key="run_sim_btn", type="primary"):
         with st.spinner(f"Simulating {n_games} games..."):
+            bot_classes = [AVAILABLE_BOTS[name] for name in selected_bots]
             stats = run_simulation(sim_kingdom, n_games=n_games, 
-                                   bot1_cls=AVAILABLE_BOTS[bot1_name], 
-                                   bot2_cls=AVAILABLE_BOTS[bot2_name])
+                                   bot_classes=bot_classes)
             st.session_state["sim_stats"] = stats
             # Clear previous analysis so it doesn't show stale results
             st.session_state.pop("sim_analysis", None)
@@ -490,31 +493,28 @@ with sim_tab:
 
         # Win rates
         st.subheader("📊 Results")
-        r_col1, r_col2, r_col3 = st.columns(3)
+        cols = st.columns(len(stats["bot_names"]) + 1)
         for i, name in enumerate(stats["bot_names"]):
-            col = [r_col1, r_col2][i]
-            with col:
+            with cols[i]:
                 win_pct = stats["win_rates"][name]
                 st.metric(f"{name}", f"{stats['wins'][name]} wins",
                           delta=f"{win_pct}%")
-        with r_col3:
+        with cols[-1]:
             st.metric("Ties", stats["ties"])
 
         # VP and turns
-        vp_col1, vp_col2, vp_col3 = st.columns(3)
+        vp_cols = st.columns(len(stats["bot_names"]) + 1)
         for i, name in enumerate(stats["bot_names"]):
-            col = [vp_col1, vp_col2][i]
-            with col:
+            with vp_cols[i]:
                 st.metric(f"Avg VP ({name})", stats["avg_vp"][name])
-        with vp_col3:
+        with vp_cols[-1]:
             st.metric("Avg Turns", stats["avg_turns"])
 
         # Buy frequency
         st.subheader("🛒 Average Cards Purchased per Game")
-        buy_col1, buy_col2 = st.columns(2)
+        buy_cols = st.columns(len(stats["bot_names"]))
         for i, name in enumerate(stats["bot_names"]):
-            col = [buy_col1, buy_col2][i]
-            with col:
+            with buy_cols[i]:
                 st.markdown(f"**{name}**")
                 buys = stats["buy_frequency"][name]
                 for card, avg in buys.items():

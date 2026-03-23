@@ -122,9 +122,10 @@ class GameState:
     def current_player(self) -> PlayerState:
         return self.players[self.current_player_idx]
 
-    @property
-    def other_player(self) -> PlayerState:
-        return self.players[1 - self.current_player_idx]
+    def get_other_players(self) -> list[PlayerState]:
+        """Returns the other players in turn order (starting from next player)."""
+        idx = self.current_player_idx
+        return self.players[idx + 1:] + self.players[:idx]
 
     def can_gain(self, card_name: str) -> bool:
         """Check if a card is available in the supply."""
@@ -166,30 +167,37 @@ class GameState:
 
 def setup_game(kingdom_cards: list[str], player_names: list[str] = None) -> GameState:
     """
-    Initialize a 2-player game with the given kingdom cards.
-
-    Sets up supply piles with correct counts for a 2-player game.
+    Initialize a game with the given kingdom cards.
+    Sets up supply piles with correct counts based on the number of players.
     """
     if player_names is None:
         player_names = ["Player 1", "Player 2"]
+        
+    num_players = len(player_names)
+    assert 2 <= num_players <= 4, "Game only supports 2-4 players"
 
-    # Basic supply (2-player counts)
+    # Basic victory scaling: 8 for 2 players, 12 for 3 or 4 players
+    victory_count = 8 if num_players == 2 else 12
+    # Curses: 10 per player beyond the first
+    curse_count = (num_players - 1) * 10
+
+    # Basic supply
     supply = {
-        "Copper": 46,     # 60 total minus 14 (7 per player)
+        "Copper": 60 - (7 * num_players),
         "Silver": 40,
         "Gold": 30,
-        "Estate": 8,      # 2-player: 8 each of victory
-        "Duchy": 8,
-        "Province": 8,
-        "Curse": 10,
+        "Estate": victory_count,
+        "Duchy": victory_count,
+        "Province": victory_count,
+        "Curse": curse_count,
     }
 
-    # Kingdom piles (10 each; Victory kingdom cards get 8 for 2p)
+    # Kingdom piles (10 each; Victory kingdom cards get standard victory_count)
     from simulation.cards import CARD_DEFS
     for card_name in kingdom_cards:
         card = CARD_DEFS.get(card_name)
         if card and "Victory" in card.types:
-            supply[card_name] = 8
+            supply[card_name] = victory_count
         else:
             supply[card_name] = 10
 
@@ -298,7 +306,7 @@ def play_treasures(game: GameState, player: PlayerState):
 def run_game(kingdom_cards: list[str], bots: list["Bot"],
              player_names: list[str] = None, max_turns: int = 100) -> dict:
     """
-    Play a full 2-player game and return results.
+    Play a full game and return results.
 
     Returns dict with:
       - winner: name of winner (or "Tie")
@@ -312,8 +320,9 @@ def run_game(kingdom_cards: list[str], bots: list["Bot"],
 
     total_turns = 0
 
-    while not game.game_over and total_turns < max_turns:
-        game.turn_number = total_turns // 2 + 1
+    while not game.game_over and total_turns < max_turns * len(bots):
+        # turn_number corresponds to round number basically
+        game.turn_number = total_turns // len(bots) + 1
         player = game.current_player
         bot = bots[game.current_player_idx]
 
@@ -334,7 +343,7 @@ def run_game(kingdom_cards: list[str], bots: list["Bot"],
                     buy_counts[player.name].get(card_name, 0) + 1
 
         # Next player
-        game.current_player_idx = 1 - game.current_player_idx
+        game.current_player_idx = (game.current_player_idx + 1) % len(bots)
         total_turns += 1
 
     # Score

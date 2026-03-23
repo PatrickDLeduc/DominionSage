@@ -159,20 +159,20 @@ def _play_cellar(game: "GameState", player: "PlayerState", bot: "Bot"):
 
 def _play_militia(game: "GameState", player: "PlayerState", bot: "Bot"):
     """Militia: +2 Coins, each other player discards down to 3."""
-    other = game.other_player
-    # Check for Moat (simplified: if Moat in hand, block)
-    if "Moat" in other.hand:
-        game.log.append(f"  {other.name} reveals Moat — blocked!")
-        return
+    for other in game.get_other_players():
+        # Check for Moat (simplified: if Moat in hand, block)
+        if "Moat" in other.hand:
+            game.log.append(f"  {other.name} reveals Moat — blocked!")
+            continue
 
-    while len(other.hand) > 3:
-        # For the defending player, use a simple heuristic:
-        # discard the least valuable card
-        discard_card = _choose_militia_discard(other)
-        other.hand.remove(discard_card)
-        other.discard.append(discard_card)
+        while len(other.hand) > 3:
+            # For the defending player, use a simple heuristic:
+            # discard the least valuable card
+            discard_card = _choose_militia_discard(other)
+            other.hand.remove(discard_card)
+            other.discard.append(discard_card)
 
-    game.log.append(f"  {player.name} plays Militia, {other.name} discards to 3")
+        game.log.append(f"  {player.name} plays Militia, {other.name} discards to 3")
 
 
 def _choose_militia_discard(player: "PlayerState") -> str:
@@ -270,22 +270,22 @@ def _play_bandit(game: "GameState", player: "PlayerState", bot: "Bot"):
         game.gain_card(player, "Gold")
         game.log.append(f"  {player.name} plays Bandit, gains Gold")
         
-    other = game.other_player
-    if "Moat" in other.hand:
-        game.log.append(f"  {other.name} reveals Moat — blocked!")
-        return
+    for other in game.get_other_players():
+        if "Moat" in other.hand:
+            game.log.append(f"  {other.name} reveals Moat — blocked!")
+            continue
 
-    revealed = other.draw(2)
-    treasures = [c for c in revealed if "Treasure" in CARD_DEFS[c].types and c != "Copper"]
-    
-    if treasures:
-        # Choose most expensive treasure to trash
-        trash_card = sorted(treasures, key=lambda c: CARD_DEFS[c].cost, reverse=True)[0]
-        revealed.remove(trash_card)
-        game.trash.append(trash_card)
-        game.log.append(f"  {other.name} trashes {trash_card}")
-    
-    other.discard.extend(revealed)
+        revealed = other.draw(2)
+        treasures = [c for c in revealed if "Treasure" in CARD_DEFS[c].types and c != "Copper"]
+        
+        if treasures:
+            # Choose most expensive treasure to trash
+            trash_card = sorted(treasures, key=lambda c: CARD_DEFS[c].cost, reverse=True)[0]
+            revealed.remove(trash_card)
+            game.trash.append(trash_card)
+            game.log.append(f"  {other.name} trashes {trash_card}")
+        
+        other.discard.extend(revealed)
 
 
 def _play_bureaucrat(game: "GameState", player: "PlayerState", bot: "Bot"):
@@ -295,18 +295,18 @@ def _play_bureaucrat(game: "GameState", player: "PlayerState", bot: "Bot"):
         player.deck.append("Silver")
         game.log.append(f"  {player.name} plays Bureaucrat, gains Silver onto deck")
         
-    other = game.other_player
-    if "Moat" in other.hand:
-        game.log.append(f"  {other.name} reveals Moat — blocked!")
-        return
-        
-    victory_in_hand = [c for c in other.hand if "Victory" in CARD_DEFS[c].types]
-    if victory_in_hand:
-        topdeck = bot.choose_bureaucrat_victory(game, other, victory_in_hand)
-        if topdeck and topdeck in other.hand:
-            other.hand.remove(topdeck)
-            other.deck.append(topdeck)
-            game.log.append(f"  {other.name} puts {topdeck} onto deck")
+    for other in game.get_other_players():
+        if "Moat" in other.hand:
+            game.log.append(f"  {other.name} reveals Moat — blocked!")
+            continue
+            
+        victory_in_hand = [c for c in other.hand if "Victory" in CARD_DEFS[c].types]
+        if victory_in_hand:
+            topdeck = bot.choose_bureaucrat_victory(game, other, victory_in_hand)
+            if topdeck and topdeck in other.hand:
+                other.hand.remove(topdeck)
+                other.deck.append(topdeck)
+                game.log.append(f"  {other.name} puts {topdeck} onto deck")
 
 
 def _play_chapel(game: "GameState", player: "PlayerState", bot: "Bot"):
@@ -323,8 +323,8 @@ def _play_chapel(game: "GameState", player: "PlayerState", bot: "Bot"):
 
 def _play_council_room(game: "GameState", player: "PlayerState", bot: "Bot"):
     """Council Room: +4 Cards, +1 Buy (done). Each other player draws a card."""
-    other = game.other_player
-    other.draw(1)
+    for other in game.get_other_players():
+        other.draw(1)
 
 
 def _play_harbinger(game: "GameState", player: "PlayerState", bot: "Bot"):
@@ -436,11 +436,11 @@ def _play_vassal(game: "GameState", player: "PlayerState", bot: "Bot"):
 
 def _play_witch(game: "GameState", player: "PlayerState", bot: "Bot"):
     """Witch: Each other player gains a Curse."""
-    other = game.other_player
-    if "Moat" in other.hand:
-        game.log.append(f"  {other.name} reveals Moat — blocked!")
-        return
-        
-    if game.can_gain("Curse"):
-        game.gain_card(other, "Curse")
-        game.log.append(f"  {player.name} plays Witch, {other.name} gains Curse")
+    for other in game.get_other_players():
+        if "Moat" in other.hand:
+            game.log.append(f"  {other.name} reveals Moat — blocked!")
+            continue
+            
+        if game.can_gain("Curse"):
+            game.gain_card(other, "Curse")
+            game.log.append(f"  {player.name} plays Witch, {other.name} gains Curse")
