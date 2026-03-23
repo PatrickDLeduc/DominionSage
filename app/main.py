@@ -31,6 +31,7 @@ from retrieval.kingdom_advisor import analyze_kingdom
 from data.kingdom_presets import KINGDOM_PRESETS
 from simulation.runner import run_simulation, analyze_simulation
 from simulation.bots import AVAILABLE_BOTS
+from app.rate_limit import check_rate_limit
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -253,6 +254,9 @@ with chat_tab:
         with st.chat_message("assistant"):
             with st.spinner("Searching cards and rulebooks..."):
                 try:
+                    if not check_rate_limit(limit=4, window=60):
+                        raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
+                        
                     result = answer_question(
                         prompt,
                         expansion=exp_filter,
@@ -387,6 +391,9 @@ with kingdom_tab:
     if analyze_clicked and count == 10:
         with st.spinner("Analyzing kingdom strategy..."):
             try:
+                if not check_rate_limit(limit=4, window=60):
+                    raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
+                    
                 # Fetch full card data
                 cards = get_kingdom_cards_by_names(selected_cards)
 
@@ -529,6 +536,9 @@ with sim_tab:
             if st.button("Analyze with AI", key="analyze_sim_btn"):
                 with st.spinner("AI is analyzing the simulation data..."):
                     try:
+                        if not check_rate_limit(limit=4, window=60):
+                            raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
+                            
                         analysis = analyze_simulation(stats)
                         st.session_state["sim_analysis"] = analysis
                         st.rerun()
