@@ -70,15 +70,20 @@ _STOPWORDS = {
 
 def tokenize(text: str) -> list[str]:
     """
-    Simple tokenizer for BM25: lowercase, split on non-alphanumeric,
-    remove stopwords and very short tokens.
+    Simple tokenizer for BM25: lowercase, map common numerals to words,
+    split on non-alphanumeric, remove stopwords and very short tokens.
 
     We keep it simple because BM25 is robust to tokenization quality —
     it's the term frequency / inverse document frequency weighting
     that does the heavy lifting.
     """
-    # Lowercase and split on non-word characters
-    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    text = text.lower()
+    # Map common numbers so query "3" matches rule text "three"
+    text = text.replace("1", "one").replace("2", "two")\
+               .replace("3", "three").replace("4", "four").replace("5", "five")
+               
+    # Split on non-word characters
+    tokens = re.findall(r"[a-z0-9]+", text)
     # Remove stopwords and single-character tokens
     return [t for t in tokens if t not in _STOPWORDS and len(t) > 1]
 

@@ -68,6 +68,14 @@ def reciprocal_rank_fusion(
             continue
 
         rrf_score = 1.0 / (RRF_K + rank)
+        
+        # Boost core rules (front of book) over card appendices (back of book)
+        try:
+            page = str(result.get("source_page", ""))
+            if page.isdigit() and int(page) <= 8:
+                rrf_score *= 1.5
+        except Exception:
+            pass
 
         if key not in fused:
             fused[key] = {
@@ -87,6 +95,14 @@ def reciprocal_rank_fusion(
             continue
 
         rrf_score = 1.0 / (RRF_K + rank)
+        
+        # Boost core rules (front of book) over card appendices (back of book)
+        try:
+            page = str(result.get("source_page", ""))
+            if page.isdigit() and int(page) <= 8:
+                rrf_score *= 1.5
+        except Exception:
+            pass
 
         if key not in fused:
             fused[key] = {
