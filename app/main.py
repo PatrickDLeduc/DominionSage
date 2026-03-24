@@ -85,6 +85,14 @@ with st.sidebar:
 
     st.divider()
 
+    limit_cards = st.checkbox(
+        "Limit card results to 20",
+        value=True,
+        help="Uncheck to return all matching cards for broad searches. Warning: Returning 100+ cards may slow down generation.",
+    )
+
+    st.divider()
+
     # Example questions
     st.markdown("**Try asking:**")
     example_questions = [
@@ -213,14 +221,16 @@ with chat_tab:
             f"Chat answers will consider these cards."
         )
 
-    # Display chat history
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # Display chat history in a scrollable container
+    chat_container = st.container(height=600)
+    with chat_container:
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-        # Show sources after assistant messages
-        if msg["role"] == "assistant" and "sources" in msg:
-            render_sources(msg["sources"])
+            # Show sources after assistant messages
+            if msg["role"] == "assistant" and "sources" in msg:
+                render_sources(msg["sources"])
 
     # Check for prefilled question from sidebar buttons
     prefill = st.session_state.pop("prefill_question", None)
@@ -233,8 +243,10 @@ with chat_tab:
     if prompt:
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
         # Build conversation history for the rewriter
         # Take only user/assistant content pairs (skip sources, query_type, etc.)
@@ -251,37 +263,39 @@ with chat_tab:
             kingdom_ctx = ", ".join(selected_kingdom)
 
         # Generate response
-        with st.chat_message("assistant"):
-            with st.spinner("Searching cards and rulebooks..."):
-                try:
-                    if not check_rate_limit(limit=4, window=60):
-                        raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
-                        
-                    result = answer_question(
-                        prompt,
-                        expansion=exp_filter,
-                        conversation_history=conversation_history,
-                        kingdom_context=kingdom_ctx,
-                    )
-                    answer = result["answer"]
-                    sources = result["sources"]
-                    query_type = result["query_type"]
-                except Exception as e:
-                    print(f"Error during chat query: {e}")
-                    answer = "Sorry, our servers are currently busy or encountered an error. Please try again in a moment."
-                    sources = []
-                    query_type = "error"
-                    result = {}
+        with chat_container:
+            with st.chat_message("assistant"):
+                with st.spinner("Searching cards and rulebooks..."):
+                    try:
+                        if not check_rate_limit(limit=4, window=60):
+                            raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
+                            
+                        result = answer_question(
+                            prompt,
+                            expansion=exp_filter,
+                            conversation_history=conversation_history,
+                            kingdom_context=kingdom_ctx,
+                            limit_cards=limit_cards,
+                        )
+                        answer = result["answer"]
+                        sources = result["sources"]
+                        query_type = result["query_type"]
+                    except Exception as e:
+                        print(f"Error during chat query: {e}")
+                        answer = "Sorry, our servers are currently busy or encountered an error. Please try again in a moment."
+                        sources = []
+                        query_type = "error"
+                        result = {}
 
-            # Show rewrite indicator if the query was rewritten
-            if "rewritten_query" in result:
-                st.caption(f"🔄 Interpreted as: *{result['rewritten_query']}*")
+                # Show rewrite indicator if the query was rewritten
+                if "rewritten_query" in result:
+                    st.caption(f"🔄 Interpreted as: *{result['rewritten_query']}*")
 
-            st.markdown(answer)
+                st.markdown(answer)
 
-        # Show sources
-        if sources:
-            render_sources(sources)
+                # Show sources
+                if sources:
+                    render_sources(sources)
 
         # Save to session state
         st.session_state.messages.append({

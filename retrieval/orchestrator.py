@@ -33,6 +33,7 @@ def answer_question(
     expansion: str | None = None,
     conversation_history: list[dict] | None = None,
     kingdom_context: str | None = None,
+    limit_cards: bool = True,
 ) -> dict:
     """
     Full pipeline: rewrite → route → retrieve → synthesize.
@@ -74,7 +75,7 @@ def answer_question(
         context["sources"] = _retrieve_card_lookup(query)
 
     elif query_type == "filtered_search":
-        context["sources"] = _retrieve_filtered_search(query, expansion)
+        context["sources"] = _retrieve_filtered_search(query, expansion, limit_cards)
 
     elif query_type == "rules_question":
         context["sources"] = _retrieve_rules(query, expansion)
@@ -126,6 +127,7 @@ def _retrieve_card_lookup(query: str) -> list[dict]:
 def _retrieve_filtered_search(
     query: str,
     expansion: str | None = None,
+    limit_cards: bool = True,
 ) -> list[dict]:
     """
     Type 2: Filtered card search.
@@ -142,12 +144,12 @@ def _retrieve_filtered_search(
     cards = filtered_search(filters)
 
     total_found = len(cards)
-    if total_found > 20:
+    if limit_cards and total_found > 20:
         cards = cards[:20]
 
     sources = [{"type": "card_db", "data": c} for c in cards]
 
-    if total_found > 20:
+    if limit_cards and total_found > 20:
         sources.append({
             "type": "meta",
             "data": {
