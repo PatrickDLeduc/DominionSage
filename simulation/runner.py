@@ -139,45 +139,62 @@ def format_stats_for_llm(stats: dict) -> str:
     return "\n".join(lines)
 
 
-def analyze_simulation(stats: dict) -> str:
+def analyze_simulation(stats: dict) -> "SimulationAnalysisResponse":
     """
     Send simulation stats to GPT-4o-mini for strategy analysis.
 
-    Returns the LLM's strategy insights as a string.
+    Returns a SimulationAnalysisResponse with structured fields for each
+    section of the analysis (why_winner_wins, key_card_interactions, etc.).
     """
-    from openai import OpenAI
+    from openai import OpenAI, LengthFinishReasonError
     import os
+    from retrieval.models import SimulationAnalysisResponse
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     stats_text = format_stats_for_llm(stats)
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.7,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert Dominion strategy analyst. You have been given "
-                    "the results of bot-vs-bot simulations on a specific kingdom. "
-                    "Analyze the data and provide strategic insights:\n\n"
-                    "1. **Why the winner wins** — what cards/strategy make the difference\n"
-                    "2. **Key card interactions** — combos that matter in this kingdom\n"
-                    "3. **Optimal opening** — what to buy on turns 1-2 based on the data\n"
-                    "4. **Strategic recommendations** — advice for a human player\n"
-                    "5. **Surprising findings** — anything unexpected in the data\n\n"
-                    "Be specific and reference the numbers. Keep it concise but insightful."
-                ),
-            },
-            {
-                "role": "user",
-                "content": stats_text,
-            },
-        ],
-    )
+    try:
+        response = client.beta.chat.completions.parse(
+            model="gpt-4o-mini",
+            temperature=0.7,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert Dominion strategy analyst. You have been given "
+                        "the results of bot-vs-bot simulations on a specific kingdom. "
+                        "Analyze the data and provide strategic insights.\n\n"
+                        "Be specific and reference the numbers. Keep it concise but insightful."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": stats_text,
+                },
+            ],
+            response_format=SimulationAnalysisResponse,
+        )
 
-    return response.choices[0].message.content
+        if response.choices[0].message.refusal:
+            return SimulationAnalysisResponse(
+                why_winner_wins="The model declined to analyze this simulation.",
+                key_card_interactions="",
+                optimal_opening="",
+                strategic_recommendations="",
+                surprising_findings="",
+            )
+
+        return response.choices[0].message.parsed
+
+    except LengthFinishReasonError:
+        return SimulationAnalysisResponse(
+            why_winner_wins="Analysis was too long to complete. Try fewer games.",
+            key_card_interactions="",
+            optimal_opening="",
+            strategic_recommendations="",
+            surprising_findings="",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────

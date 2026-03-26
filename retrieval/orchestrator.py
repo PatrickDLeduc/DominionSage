@@ -83,16 +83,21 @@ def answer_question(
     elif query_type == "strategy_combo":
         context["sources"] = _retrieve_strategy_combo(query, expansion)
 
-    # Step 3: Synthesize the final answer
-    answer = synthesize_answer(query, context, kingdom_context=kingdom_context)
+    # Step 3: Synthesize the final answer (now returns structured dict)
+    synth_result = synthesize_answer(query, context, kingdom_context=kingdom_context)
 
-    # Step 4: Append any meta notes directly to the answer
-    for source in context["sources"]:
-        if source["type"] == "meta":
-            answer += f"\n\n> **Note:** {source['data']['note']}"
+    # Extract meta notes separately (no longer appended to answer text)
+    meta_notes = [
+        s["data"]["note"]
+        for s in context["sources"]
+        if s["type"] == "meta"
+    ]
 
     result = {
-        "answer": answer,
+        "answer": synth_result["answer_text"],
+        "citations": synth_result.get("citations", []),
+        "source_map": synth_result.get("source_map", {}),
+        "meta_notes": meta_notes,
         "sources": context["sources"],
         "query_type": query_type,
     }

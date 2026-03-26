@@ -22,12 +22,13 @@ except ImportError:
     load_dotenv = None
 
 try:
-    from openai import OpenAI
+    from openai import OpenAI, LengthFinishReasonError
 except ImportError:
     print("Missing dependency: pip install openai")
     sys.exit(1)
 
 from retrieval.synthesizer import STRATEGY_PRINCIPLES
+from retrieval.models import KingdomAdvisorResponse
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -53,34 +54,15 @@ def _get_client() -> OpenAI:
 KINGDOM_SYSTEM = """You are DominionSage's Kingdom Advisor — an expert Dominion strategist.
 
 You are given the 10 kingdom cards for a game. Analyze them and provide
-actionable strategy advice. Structure your response with these sections:
-
-## 🎯 Opening Strategy
-Recommend the best opening buys (first 2 turns, starting with 3/4 or 5/2 split).
-Explain WHY these are the best opening cards for this kingdom.
-
-## 🔗 Key Combos
-Identify the 2-3 strongest card synergies in this kingdom. For each combo,
-explain the mechanic: what happens when you play them together and why it's
-powerful. Be specific (e.g., "Throne Room + Smithy = +6 Cards").
-
-## 📊 Archetype Assessment
-Is this kingdom better suited for an Engine, Big Money, Rush, or Slog strategy?
-Explain what makes one archetype stronger than the others given these specific cards.
-
-## ⚠️ Cards to Avoid
-Are any of the 10 cards traps or low-priority? Explain why they're weak in
-THIS specific kingdom (not in general).
-
-## 🛡️ Attack & Defense
-If there are Attack cards, how threatening are they? What defenses are available?
-If no attacks, note that the game will be more of a "solitaire" race.
+actionable strategy advice.
 
 RULES:
 - Be specific and reference actual card names, costs, and mechanics.
 - Keep advice concise — this is a quick pre-game reference, not an essay.
-- Use bold for card names when first mentioned.
 - Do NOT make up cards or mechanics. Use ONLY the cards provided.
+- For opening strategy, explain WHY these are the best buys for this kingdom.
+- For combos, explain the mechanic (e.g., "Throne Room + Smithy = +6 Cards").
+- For cards to avoid, explain why they're weak in THIS specific kingdom.
 """ + STRATEGY_PRINCIPLES
 
 
@@ -105,7 +87,7 @@ def format_kingdom_context(cards: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def analyze_kingdom(cards: list[dict]) -> str:
+def analyze_kingdom(cards: list[dict]) -> KingdomAdvisorResponse:
     """
     Analyze a set of kingdom cards and return strategic advice.
 
@@ -114,7 +96,9 @@ def analyze_kingdom(cards: list[dict]) -> str:
                Should contain 10 cards for a standard kingdom.
 
     Returns:
-        Markdown-formatted strategy advice string.
+        KingdomAdvisorResponse with structured sections for opening
+        strategy, combos, archetype assessment, cards to avoid, and
+        attack/defense analysis.
     """
     client = _get_client()
     context = format_kingdom_context(cards)
@@ -147,7 +131,7 @@ def analyze_kingdom(cards: list[dict]) -> str:
 Analyze this kingdom and provide your strategic advice."""
 
     try:
-        response = client.chat.completions.create(
+        response = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": KINGDOM_SYSTEM},
@@ -155,11 +139,36 @@ Analyze this kingdom and provide your strategic advice."""
             ],
             temperature=0.4,
             max_tokens=1500,
+            response_format=KingdomAdvisorResponse,
         )
-        return response.choices[0].message.content
 
+        if response.choices[0].message.refusal:
+            return KingdomAdvisorResponse(
+                opening_strategy={"three_four_split": "Unable to analyze.", "five_two_split": "Unable to analyze."},
+                key_combos=[],
+                archetype_assessment="The model declined to analyze this kingdom.",
+                cards_to_avoid=[],
+                attack_and_defense="",
+            )
+
+        return response.choices[0].message.parsed
+
+    except LengthFinishReasonError:
+        return KingdomAdvisorResponse(
+            opening_strategy={"three_four_split": "Analysis too long.", "five_two_split": "Analysis too long."},
+            key_combos=[],
+            archetype_assessment="Response was too long to complete. Try again.",
+            cards_to_avoid=[],
+            attack_and_defense="",
+        )
     except Exception as e:
-        return f"Sorry, I encountered an error analyzing this kingdom: {str(e)}"
+        return KingdomAdvisorResponse(
+            opening_strategy={"three_four_split": "Error occurred.", "five_two_split": "Error occurred."},
+            key_combos=[],
+            archetype_assessment=f"Sorry, I encountered an error analyzing this kingdom: {str(e)}",
+            cards_to_avoid=[],
+            attack_and_defense="",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────

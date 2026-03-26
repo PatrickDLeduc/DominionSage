@@ -228,9 +228,25 @@ with chat_tab:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-            # Show sources after assistant messages
-            if msg["role"] == "assistant" and "sources" in msg:
-                render_sources(msg["sources"])
+            # Show citations and sources after assistant messages
+            if msg["role"] == "assistant":
+                # Meta notes
+                for note in msg.get("meta_notes", []):
+                    st.info(f"**Note:** {note}")
+
+                # Structured citations
+                msg_citations = msg.get("citations", [])
+                msg_source_map = msg.get("source_map", {})
+                if msg_citations and msg_source_map:
+                    with st.expander(f"📎 {len(msg_citations)} citation(s)"):
+                        for cite in msg_citations:
+                            label = cite.get("source_label", "")
+                            display = msg_source_map.get(label, {}).get("display", label)
+                            st.markdown(f"- **{display}**: {cite.get('claim', '')}")
+
+                # Source panel
+                if "sources" in msg:
+                    render_sources(msg["sources"])
 
     # Check for prefilled question from sidebar buttons
     prefill = st.session_state.pop("prefill_question", None)
@@ -293,6 +309,20 @@ with chat_tab:
 
                 st.markdown(answer)
 
+                # Show meta notes as info callouts
+                for note in result.get("meta_notes", []):
+                    st.info(f"**Note:** {note}")
+
+                # Show structured citations
+                citations = result.get("citations", [])
+                source_map = result.get("source_map", {})
+                if citations and source_map:
+                    with st.expander(f"📎 {len(citations)} citation(s)"):
+                        for cite in citations:
+                            label = cite.get("source_label", "")
+                            display = source_map.get(label, {}).get("display", label)
+                            st.markdown(f"- **{display}**: {cite.get('claim', '')}")
+
                 # Show sources
                 if sources:
                     render_sources(sources)
@@ -303,6 +333,9 @@ with chat_tab:
             "content": answer,
             "sources": sources,
             "query_type": query_type,
+            "citations": result.get("citations", []),
+            "source_map": result.get("source_map", {}),
+            "meta_notes": result.get("meta_notes", []),
         })
 
 
@@ -410,15 +443,15 @@ with kingdom_tab:
             try:
                 if not check_rate_limit(limit=4, window=60):
                     raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
-                    
+
                 # Fetch full card data
                 cards = get_kingdom_cards_by_names(selected_cards)
 
-                # Run GPT analysis
+                # Run GPT analysis (returns KingdomAdvisorResponse)
                 advice = analyze_kingdom(cards)
 
-                # Store results
-                st.session_state["kingdom_advice"] = advice
+                # Store as dict for Streamlit serialization
+                st.session_state["kingdom_advice"] = advice.model_dump()
                 st.session_state["kingdom_cards_data"] = cards
             except Exception as e:
                 print(f"Error during kingdom analysis: {e}")
@@ -428,8 +461,28 @@ with kingdom_tab:
     if "kingdom_advice" in st.session_state and st.session_state.get("kingdom_multiselect"):
         st.divider()
 
-        # Strategy advice
-        st.markdown(st.session_state["kingdom_advice"])
+        # Render structured strategy advice
+        advice = st.session_state["kingdom_advice"]
+
+        st.subheader("🎯 Opening Strategy")
+        opening = advice.get("opening_strategy", {})
+        st.markdown(f"**3/4 Split:** {opening.get('three_four_split', 'N/A')}")
+        st.markdown(f"**5/2 Split:** {opening.get('five_two_split', 'N/A')}")
+
+        st.subheader("🔗 Key Combos")
+        for combo in advice.get("key_combos", []):
+            cards_str = " + ".join(f"**{c}**" for c in combo.get("cards", []))
+            st.markdown(f"{cards_str}: {combo.get('explanation', '')}")
+
+        st.subheader("📊 Archetype Assessment")
+        st.markdown(advice.get("archetype_assessment", "N/A"))
+
+        st.subheader("⚠️ Cards to Avoid")
+        for card_note in advice.get("cards_to_avoid", []):
+            st.markdown(f"- {card_note}")
+
+        st.subheader("🛡️ Attack & Defense")
+        st.markdown(advice.get("attack_and_defense", "N/A"))
 
         # Card reference grid
         st.divider()
@@ -556,15 +609,30 @@ with sim_tab:
                     try:
                         if not check_rate_limit(limit=4, window=60):
                             raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
-                            
+
                         analysis = analyze_simulation(stats)
-                        st.session_state["sim_analysis"] = analysis
+                        # Store as dict for Streamlit serialization
+                        st.session_state["sim_analysis"] = analysis.model_dump()
                         st.rerun()
                     except Exception as e:
                         print(f"Error during simulation analysis: {e}")
                         st.error("Analysis failed due to a server error. Please try again in a moment.")
         else:
-            st.markdown(st.session_state["sim_analysis"])
+            # Render structured analysis sections
+            analysis = st.session_state["sim_analysis"]
+            sections = [
+                ("🏆 Why the Winner Wins", analysis.get("why_winner_wins", "")),
+                ("🔗 Key Card Interactions", analysis.get("key_card_interactions", "")),
+                ("🎯 Optimal Opening", analysis.get("optimal_opening", "")),
+                ("💡 Strategic Recommendations", analysis.get("strategic_recommendations", "")),
+                ("🔍 Surprising Findings", analysis.get("surprising_findings", "")),
+            ]
+            for heading, content in sections:
+                if content:
+                    st.markdown(f"**{heading}**")
+                    st.markdown(content)
+                    st.divider()
+
             if st.button("Re-analyze", key="reanalyze_btn"):
                 del st.session_state["sim_analysis"]
                 st.rerun()

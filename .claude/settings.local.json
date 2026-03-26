@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from retrieval.models import SynthesizerResponse, KingdomAdvisorResponse, SimulationAnalysisResponse; print\\(''Models OK''\\)\")",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
