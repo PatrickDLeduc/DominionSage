@@ -348,8 +348,6 @@ def main():
     else:
         print("\n  Tip: run with --validate to test semantic search.")
 
-    print(f"\n  Next step: create the match_chunks RPC function in Supabase,")
-    print(f"  then move on to Phase 3 (retrieval layer).")
 
 
 if __name__ == "__main__":
