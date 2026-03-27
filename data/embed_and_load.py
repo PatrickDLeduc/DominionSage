@@ -307,12 +307,18 @@ def main():
         # Prepare records for Supabase
         records = []
         for chunk, embedding in zip(exp_chunks, all_embeddings):
-            records.append({
+            record = {
                 "expansion": chunk["expansion"],
                 "source_page": chunk["source_page"],
                 "chunk_text": chunk["chunk_text"],
                 "embedding": embedding,
-            })
+            }
+            # Pass through semantic metadata if present (strategy chunks)
+            if "chunk_type" in chunk:
+                record["chunk_type"] = chunk["chunk_type"]
+            if "card_name" in chunk:
+                record["card_name"] = chunk["card_name"]
+            records.append(record)
 
         # Load into Supabase
         print(f"  Loading into Supabase...")

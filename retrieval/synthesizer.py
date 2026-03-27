@@ -186,15 +186,32 @@ def format_context(sources: list[dict]) -> tuple[str, dict]:
             similarity = chunk.get("similarity", 0)
             expansion = chunk.get("expansion", "?")
             page = chunk.get("source_page", "?")
+            chunk_type = chunk.get("chunk_type")
+            card_name = chunk.get("card_name")
+
+            # Richer labels for strategy chunks (which have chunk_type metadata)
+            if chunk_type and card_name:
+                type_labels = {
+                    "overview": "Strategy Overview",
+                    "synergy": "Synergy",
+                    "opening": "Opening",
+                    "archetype": "Archetype",
+                    "faq": "FAQ",
+                }
+                type_label = type_labels.get(chunk_type, "Strategy")
+                display = f"{type_label}: {card_name} ({expansion}, relevance: {similarity:.0%})"
+                header = f"{type_label} — {card_name} ({expansion}), relevance: {similarity:.0%}"
+            else:
+                display = f"Rulebook: {expansion} p.{page} (relevance: {similarity:.0%})"
+                header = f"Rulebook — {expansion} p.{page}, relevance: {similarity:.0%}"
 
             source_map[label] = {
                 "type": "rulebook",
-                "display": f"Rulebook: {expansion} p.{page} (relevance: {similarity:.0%})",
+                "display": display,
             }
 
             parts.append(
-                f"[{label}: Rulebook — {expansion} p.{page}, "
-                f"relevance: {similarity:.0%}]\n"
+                f"[{label}: {header}]\n"
                 f"{chunk.get('chunk_text', 'N/A')}"
             )
 

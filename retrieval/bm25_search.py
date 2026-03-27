@@ -198,12 +198,20 @@ def bm25_search(
     for score, chunk in top_results:
         if score <= 0:
             continue  # skip zero-score results
-        results.append({
+        result = {
             "expansion": chunk.get("expansion", "Unknown"),
             "source_page": chunk.get("source_page", "?"),
             "chunk_text": chunk.get("chunk_text", ""),
             "bm25_score": float(score),
-        })
+        }
+        # Pass through semantic metadata (from strategy chunks)
+        if "chunk_type" in chunk:
+            result["chunk_type"] = chunk["chunk_type"]
+        if "card_name" in chunk:
+            result["card_name"] = chunk["card_name"]
+        if "related_cards" in chunk:
+            result["related_cards"] = chunk["related_cards"]
+        results.append(result)
 
     return results
 
