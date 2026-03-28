@@ -69,7 +69,7 @@ def lookup_card(card_name: str) -> list[dict]:
     result = client.table("cards") \
         .select("*") \
         .ilike("name", f"%{card_name}%") \
-        .neq("edition", "1e_only") \
+        .or_("edition.is.null,edition.neq.1e_only") \
         .execute()
 
     return result.data
@@ -85,7 +85,7 @@ def lookup_card_exact(card_name: str) -> dict | None:
     result = client.table("cards") \
         .select("*") \
         .ilike("name", card_name) \
-        .neq("edition", "1e_only") \
+        .or_("edition.is.null,edition.neq.1e_only") \
         .execute()
 
     return result.data[0] if result.data else None
@@ -115,7 +115,7 @@ def filtered_search(filters: dict) -> list[dict]:
       - Cards with null costs when filtering by cost
     """
     client = _get_client()
-    query = client.table("cards").select("*").neq("edition", "1e_only")
+    query = client.table("cards").select("*").or_("edition.is.null,edition.neq.1e_only")
 
     # Exclude non-supply card types from filtered results
     # These are game elements but not cards you buy from supply piles
@@ -191,7 +191,7 @@ def get_all_kingdom_card_names() -> list[str]:
     """
     client = _get_client()
 
-    result = client.table("cards").select("name, type").neq("edition", "1e_only").execute()
+    result = client.table("cards").select("name, type").or_("edition.is.null,edition.neq.1e_only").execute()
 
     names = []
     for card in result.data:
@@ -224,7 +224,7 @@ def get_kingdom_cards_by_names(card_names: list[str]) -> list[dict]:
     result = client.table("cards") \
         .select("*") \
         .in_("name", card_names) \
-        .neq("edition", "1e_only") \
+        .or_("edition.is.null,edition.neq.1e_only") \
         .execute()
 
     # Sort results to match input order
@@ -240,7 +240,7 @@ def get_kingdom_cards_by_names(card_names: list[str]) -> list[dict]:
 def get_all_expansion_names() -> list[str]:
     """Return a sorted list of distinct expansion names from the cards table."""
     client = _get_client()
-    result = client.table("cards").select("expansion").neq("edition", "1e_only").execute()
+    result = client.table("cards").select("expansion").or_("edition.is.null,edition.neq.1e_only").execute()
 
     expansions = set()
     for card in result.data:
@@ -266,7 +266,7 @@ def get_random_kingdom(expansions: list[str]) -> list[str]:
     result = client.table("cards") \
         .select("name, type") \
         .in_("expansion", expansions) \
-        .neq("edition", "1e_only") \
+        .or_("edition.is.null,edition.neq.1e_only") \
         .execute()
 
     # Apply the same kingdom-eligibility filters
