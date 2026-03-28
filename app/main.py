@@ -21,6 +21,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from retrieval.orchestrator import answer_question
+from retrieval.agent import answer_question_agent
 from retrieval.card_lookup import (
     get_all_kingdom_card_names,
     get_kingdom_cards_by_names,
@@ -93,6 +94,14 @@ with st.sidebar:
 
     st.divider()
 
+    use_agent = st.checkbox(
+        "Agent mode",
+        value=True,
+        help="Use an LLM agent that dynamically selects tools instead of the rule-based router. Handles complex multi-part questions better.",
+    )
+
+    st.divider()
+
     # Example questions
     st.markdown("**Try asking:**")
     example_questions = [
@@ -112,12 +121,15 @@ with st.sidebar:
         st.markdown("""
         **DominionSage** uses hybrid retrieval:
 
-        1. **Router** classifies your question into one of 4 types
-        2. **Card DB** (PostgreSQL) handles card lookups and filtered searches
-        3. **Vector Store** (pgvector) handles rules questions via semantic search
-        4. **GPT-4o-mini** synthesizes the final answer from retrieved context
+        **Agent mode** (default): An LLM agent dynamically decides which
+        tools to call — card lookup, filtered search, rules search, or
+        strategy search — and can use multiple tools per query.
 
-        Every answer shows its sources so you can verify the information.
+        **Pipeline mode**: A rule-based router classifies your question
+        into one of 4 types and follows a fixed retrieval path.
+
+        Both modes use **Card DB** (PostgreSQL), **Vector Store** (pgvector),
+        and **GPT-4o-mini** for synthesis. Every answer shows its sources.
         """)
 
     # Clear chat button
@@ -281,27 +293,61 @@ with chat_tab:
         # Generate response
         with chat_container:
             with st.chat_message("assistant"):
-                with st.spinner("Searching cards and rulebooks..."):
+                if use_agent:
+                    status = st.status("Thinking...", expanded=False)
+                    def _on_tool_call(tool_name, args):
+                        tool_labels = {
+                            "lookup_card": f"Looking up {args.get('card_name', 'card')}...",
+                            "search_cards": "Searching card database...",
+                            "search_rules": "Searching rulebooks...",
+                            "search_strategy": "Searching strategy guides...",
+                        }
+                        status.update(label=tool_labels.get(tool_name, f"Using {tool_name}..."))
                     try:
                         if not check_rate_limit(limit=4, window=60):
                             raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
-                            
-                        result = answer_question(
+
+                        result = answer_question_agent(
                             prompt,
                             expansion=exp_filter,
                             conversation_history=conversation_history,
                             kingdom_context=kingdom_ctx,
                             limit_cards=limit_cards,
+                            on_tool_call=_on_tool_call,
                         )
                         answer = result["answer"]
                         sources = result["sources"]
                         query_type = result["query_type"]
                     except Exception as e:
-                        print(f"Error during chat query: {e}")
+                        print(f"Error during agent query: {e}")
                         answer = "Sorry, our servers are currently busy or encountered an error. Please try again in a moment."
                         sources = []
                         query_type = "error"
                         result = {}
+                    finally:
+                        status.update(label="Done", state="complete")
+                else:
+                    with st.spinner("Searching cards and rulebooks..."):
+                        try:
+                            if not check_rate_limit(limit=4, window=60):
+                                raise Exception("Rate limit exceeded (4 requests per minute). Please wait a moment before trying again.")
+
+                            result = answer_question(
+                                prompt,
+                                expansion=exp_filter,
+                                conversation_history=conversation_history,
+                                kingdom_context=kingdom_ctx,
+                                limit_cards=limit_cards,
+                            )
+                            answer = result["answer"]
+                            sources = result["sources"]
+                            query_type = result["query_type"]
+                        except Exception as e:
+                            print(f"Error during chat query: {e}")
+                            answer = "Sorry, our servers are currently busy or encountered an error. Please try again in a moment."
+                            sources = []
+                            query_type = "error"
+                            result = {}
 
                 # Show rewrite indicator if the query was rewritten
                 if "rewritten_query" in result:

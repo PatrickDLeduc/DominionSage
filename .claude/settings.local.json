@@ -3,7 +3,11 @@
     "allow": [
       "Bash(python -c \"from retrieval.models import SynthesizerResponse, KingdomAdvisorResponse, SimulationAnalysisResponse; print\\(''Models OK''\\)\")",
       "Bash(python -c \":*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''retrieval/tools.py''\\).read\\(\\)\\); print\\(''tools.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''retrieval/agent.py''\\).read\\(\\)\\); print\\(''agent.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''app/main.py''\\).read\\(\\)\\); print\\(''main.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''app/main.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''main.py OK''\\)\")"
     ]
   }
 }
